@@ -1,0 +1,2 @@
+-- Initial migration placeholder for ForYou
+-- Add schema and policies in future iterations.
