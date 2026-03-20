@@ -6,10 +6,17 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.foryou.mobile"
+      "bundleIdentifier": "com.foryou.mobile",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "프로필 사진을 선택하기 위해 사진 보관함 접근 권한이 필요합니다.",
+        "NSPhotoLibraryAddUsageDescription": "선택한 프로필 이미지를 처리하고 저장하기 위해 사진 접근 권한이 필요합니다.",
+        "NSCameraUsageDescription": "향후 프로필 사진 촬영 기능을 위해 카메라 접근 권한이 필요할 수 있습니다."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,6 +29,9 @@
     },
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "plugins": [
+      "expo-router"
+    ]
   }
 }

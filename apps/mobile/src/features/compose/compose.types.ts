@@ -1,6 +1,7 @@
 import type { DbUserTier, UserProfileRow } from "@foryou/types";
 
 export type ComposeSectionCode = "life" | "study" | "qa" | "fun";
+export type StudyDegree = "bachelor" | "master" | "phd";
 
 export type ComposeSectionOption = {
   code: ComposeSectionCode;
@@ -43,6 +44,7 @@ export type CreatePostInput = {
   universitySlug: string | null;
   locationText: string | null;
   tags: string[];
+  degree?: StudyDegree | null;
 };
 
 export type CreatePostResult = {

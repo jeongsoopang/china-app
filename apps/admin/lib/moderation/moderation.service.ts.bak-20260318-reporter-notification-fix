@@ -1,0 +1,278 @@
+import type { AnnouncementRow, ModerationFlagRow, ReportRow } from "@foryou/types";
+import {
+  createModerationFlag,
+  publishAnnouncement,
+  reviewModerationFlag,
+  reviewReport,
+  type AppSupabaseClient,
+  type CreateModerationFlagInput
+} from "@foryou/supabase";
+import { requireGrandMasterAccess } from "../auth/grandmaster";
+import { createAdminServerSupabaseClient, createAdminServiceClient } from "../supabase/server";
+
+type ReporterProfileRow = {
+  id: string;
+  display_name: string | null;
+};
+
+type PostLookupRow = {
+  id: number;
+  author_id: string | null;
+  title: string | null;
+  body: string | null;
+  status: string | null;
+};
+
+type ReportWithDetails = ReportRow & {
+  reporter_display_name: string | null;
+  reporter_email: string | null;
+  target_author_id: string | null;
+  target_author_display_name: string | null;
+  target_author_email: string | null;
+  target_post_title: string | null;
+  target_post_body: string | null;
+  target_post_status: string | null;
+};
+
+function errorMessageFromUnknown(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return message;
+    }
+  }
+
+  return fallback;
+}
+
+export async function fetchReports(limit = 100): Promise<ReportWithDetails[]> {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  const { data, error } = await client
+    .from("reports")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  const reports = (data ?? []) as ReportRow[];
+  if (reports.length === 0) {
+    return [];
+  }
+
+  const reporterIds = Array.from(
+    new Set(reports.map((report) => report.reporter_id).filter(Boolean))
+  ) as string[];
+
+  const reporterProfileMap = new Map<string, ReporterProfileRow>();
+  if (reporterIds.length > 0) {
+    const reporterProfilesResult = await client
+      .from("user_profiles")
+      .select("id, display_name")
+      .in("id", reporterIds);
+
+    if (reporterProfilesResult.error) {
+      throw new Error(
+        errorMessageFromUnknown(reporterProfilesResult.error, "Failed to load reporter profiles.")
+      );
+    }
+
+    for (const row of (reporterProfilesResult.data ?? []) as ReporterProfileRow[]) {
+      reporterProfileMap.set(row.id, row);
+    }
+  }
+
+  const postIds = Array.from(
+    new Set(
+      reports
+        .filter((report) => report.target_type === "post")
+        .map((report) => report.target_id)
+        .filter((value): value is number => typeof value === "number")
+    )
+  );
+
+  const postMap = new Map<number, PostLookupRow>();
+  if (postIds.length > 0) {
+    const postsResult = await client
+      .from("posts")
+      .select("id, author_id, title, body, status")
+      .in("id", postIds);
+
+    if (postsResult.error) {
+      throw new Error(errorMessageFromUnknown(postsResult.error, "Failed to load posts."));
+    }
+
+    for (const post of (postsResult.data ?? []) as PostLookupRow[]) {
+      postMap.set(post.id, post);
+    }
+  }
+
+  const targetAuthorIds = Array.from(
+    new Set(
+      Array.from(postMap.values())
+        .map((post) => post.author_id)
+        .filter((value): value is string => Boolean(value))
+    )
+  );
+
+  const targetAuthorProfileMap = new Map<string, ReporterProfileRow>();
+  if (targetAuthorIds.length > 0) {
+    const targetAuthorProfilesResult = await client
+      .from("user_profiles")
+      .select("id, display_name")
+      .in("id", targetAuthorIds);
+
+    if (targetAuthorProfilesResult.error) {
+      throw new Error(
+        errorMessageFromUnknown(
+          targetAuthorProfilesResult.error,
+          "Failed to load target author profiles."
+        )
+      );
+    }
+
+    for (const row of (targetAuthorProfilesResult.data ?? []) as ReporterProfileRow[]) {
+      targetAuthorProfileMap.set(row.id, row);
+    }
+  }
+
+  const authUsersResult = await client.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000
+  });
+
+  if (authUsersResult.error) {
+    throw new Error(errorMessageFromUnknown(authUsersResult.error, "Failed to load auth users."));
+  }
+
+  const authEmailMap = new Map<string, string | null>();
+  for (const user of authUsersResult.data.users) {
+    authEmailMap.set(user.id, user.email ?? null);
+  }
+
+  return reports.map((report) => {
+    const reporterProfile = reporterProfileMap.get(report.reporter_id);
+    const targetPost =
+      report.target_type === "post" && typeof report.target_id === "number"
+        ? postMap.get(report.target_id)
+        : null;
+    const targetAuthorProfile = targetPost?.author_id
+      ? targetAuthorProfileMap.get(targetPost.author_id)
+      : null;
+
+    return {
+      ...report,
+      reporter_display_name: reporterProfile?.display_name ?? null,
+      reporter_email: authEmailMap.get(report.reporter_id) ?? null,
+      target_author_id: targetPost?.author_id ?? null,
+      target_author_display_name: targetAuthorProfile?.display_name ?? null,
+      target_author_email:
+        targetPost?.author_id ? authEmailMap.get(targetPost.author_id) ?? null : null,
+      target_post_title: targetPost?.title ?? null,
+      target_post_body: targetPost?.body ?? null,
+      target_post_status: targetPost?.status ?? null
+    };
+  });
+}
+
+export async function reviewReportById(params: {
+  reportId: number;
+  nextStatus: string;
+  action?: string;
+}) {
+  await requireGrandMasterAccess();
+
+  const client = (await createAdminServerSupabaseClient()) as unknown as AppSupabaseClient;
+  const result = await reviewReport(client, {
+    reportId: params.reportId,
+    nextStatus: params.nextStatus,
+    action: params.action ?? "none"
+  });
+
+  if (!result.success) {
+    throw new Error(result.message ?? "Failed to review report.");
+  }
+
+  return result;
+}
+
+export async function fetchModerationFlags(limit = 100): Promise<ModerationFlagRow[]> {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  const { data, error } = await client
+    .from("moderation_flags")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function reviewModerationFlagById(params: {
+  flagId: number;
+  nextStatus: string;
+}) {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  const result = await reviewModerationFlag(client, {
+    flagId: params.flagId,
+    nextStatus: params.nextStatus
+  });
+
+  if (!result.success) {
+    throw new Error(result.message ?? "Failed to review moderation flag.");
+  }
+
+  return result;
+}
+
+export async function createModerationFlagManual(input: CreateModerationFlagInput) {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  return createModerationFlag(client, input);
+}
+
+export async function fetchAnnouncements(limit = 100): Promise<AnnouncementRow[]> {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  const { data, error } = await client
+    .from("announcements")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function publishAnnouncementById(announcementId: number) {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  const result = await publishAnnouncement(client, announcementId);
+
+  if (!result.published) {
+    throw new Error(result.message ?? "Failed to publish announcement.");
+  }
+
+  return result;
+}

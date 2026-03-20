@@ -1,0 +1,156 @@
+import { reviewReportAction } from "../../../lib/moderation/actions";
+import { fetchReports } from "../../../lib/moderation/moderation.service";
+
+export const dynamic = "force-dynamic";
+
+function formatTime(value: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function previewText(value: string | null, maxLength = 180): string {
+  if (!value) {
+    return "-";
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}…`;
+}
+
+const moderationActionOptions = [
+  { value: "request_revision", label: "Request Revision" },
+  { value: "hide", label: "Hide Content" },
+  { value: "delete", label: "Delete Content" }
+] as const;
+
+export default async function ReportsPage() {
+  let reportsError: string | null = null;
+  let reports = [] as Awaited<ReturnType<typeof fetchReports>>;
+
+  try {
+    reports = await fetchReports();
+  } catch (error) {
+    reportsError = error instanceof Error ? error.message : "Failed to load reports.";
+  }
+
+  return (
+    <section>
+      <h2>Reports</h2>
+      <p>Review user reports and apply moderation actions.</p>
+
+      {reportsError ? <p className="error-text">{reportsError}</p> : null}
+
+      {!reportsError && reports.length === 0 ? (
+        <p>No reports available.</p>
+      ) : (
+        <div className="data-list">
+          {reports.map((report) => (
+            <article key={report.id} className="data-card">
+              <header className="data-card-header">
+                <h3>Report #{report.id}</h3>
+                <span className="status-badge">{report.status}</span>
+              </header>
+
+              <dl className="data-grid">
+                <div>
+                  <dt>Target</dt>
+                  <dd>
+                    {report.target_type} #{report.target_id}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Reason</dt>
+                  <dd>{report.reason_code}</dd>
+                </div>
+                <div>
+                  <dt>Details</dt>
+                  <dd>{report.reason_text ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatTime(report.created_at)}</dd>
+                </div>
+                <div>
+                  <dt>Reviewed</dt>
+                  <dd>{formatTime(report.reviewed_at)}</dd>
+                </div>
+                <div>
+                  <dt>Action Taken</dt>
+                  <dd>{report.action_taken ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt>Reporter</dt>
+                  <dd>
+                    {report.reporter_display_name ?? "-"}
+                    <br />
+                    <span className="muted-text">{report.reporter_email ?? "-"}</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Target Author</dt>
+                  <dd>
+                    {report.target_author_display_name ?? "-"}
+                    <br />
+                    <span className="muted-text">{report.target_author_email ?? "-"}</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Post Title</dt>
+                  <dd>{report.target_post_title ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt>Post Status</dt>
+                  <dd>{report.target_post_status ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt>Post Preview</dt>
+                  <dd>{previewText(report.target_post_body)}</dd>
+                </div>
+              </dl>
+
+              <form action={reviewReportAction} className="action-form">
+                <input name="reportId" type="hidden" value={String(report.id)} />
+
+                <label>
+                  Next Status
+                  <select
+                    name="nextStatus"
+                    defaultValue={report.status === "open" ? "reviewed" : report.status}
+                  >
+                    {Array.from(new Set(["reviewed", "actioned", "dismissed", "open"]))
+                      .map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+
+                <label>
+                  Action
+                  <select name="action" defaultValue="request_revision">
+                    {moderationActionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button type="submit">Apply Action</button>
+              </form>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

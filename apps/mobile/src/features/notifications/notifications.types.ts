@@ -1,9 +1,13 @@
-import type { NotificationRow } from "@foryou/types";
-
-export type NotificationListItem = Pick<
-  NotificationRow,
-  "id" | "title" | "message" | "type" | "post_id" | "is_read" | "created_at"
->;
+export type NotificationListItem = {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  ref_type: string | null;
+  ref_id: string | null;
+  is_read: boolean;
+  created_at: string;
+};
 
 export type MarkNotificationReadResult = {
   marked: boolean;

@@ -21,3 +21,7 @@ export function getAdminServiceEnv() {
     supabaseServiceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY", process.env.SUPABASE_SERVICE_ROLE_KEY)
   });
 }
+
+export function getAdminGrandMasterUserId() {
+  return requireEnv("ADMIN_GRANDMASTER_USER_ID", process.env.ADMIN_GRANDMASTER_USER_ID);
+}

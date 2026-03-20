@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getGrandMasterAccessState } from "../../lib/auth/grandmaster";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -10,9 +12,19 @@ const links = [
   { href: "/audit", label: "Audit" }
 ] as const;
 
-export default function AdminSectionLayout({
+export default async function AdminSectionLayout({
   children
 }: Readonly<{ children: React.ReactNode }>) {
+  const accessState = await getGrandMasterAccessState();
+
+  if (accessState.status !== "allow") {
+    if (accessState.reason === "not_signed_in") {
+      redirect("/login");
+    }
+
+    redirect("/access-denied");
+  }
+
   return (
     <main>
       <h1>ForYou Admin</h1>

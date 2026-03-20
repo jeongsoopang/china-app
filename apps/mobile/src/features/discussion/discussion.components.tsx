@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { ReportReasonCode } from "@foryou/supabase";
 import { REPORT_REASON_OPTIONS } from "../moderation/report.service";
 import type { DiscussionMode, ThreadComment } from "./discussion.types";
+import { colors, radius, spacing, typography } from "../../ui/theme";
 
 type CommentTreeProps = {
   mode: DiscussionMode;
@@ -70,11 +71,18 @@ function CommentNode(props: {
   const isLiking = likingCommentId === comment.id;
   const isReportingComment =
     activeReportTarget?.targetType === "comment" && activeReportTarget.targetId === comment.id;
-  const authorLabel = formatAuthorId(comment.author_id);
+  const authorLabel = formatAuthorId(comment.author_display_name ?? null, comment.author_id);
   const createdLabel = formatTimestamp(comment.created_at);
 
   return (
-    <View style={[styles.commentCard, depth > 0 && styles.replyCard]}>
+    <View
+      style={[
+        styles.commentCard,
+        depth > 0 && styles.replyCard,
+        depth === 1 && styles.replyCardLevel1,
+        depth > 1 && styles.replyCardLevel2
+      ]}
+    >
       <View style={styles.commentHeader}>
         <Text style={styles.commentLabel}>{label}</Text>
         <Text style={styles.commentMeta}>#{comment.id}</Text>
@@ -151,7 +159,11 @@ function CommentNode(props: {
   );
 }
 
-function formatAuthorId(authorId: string): string {
+function formatAuthorId(displayName: string | null, authorId: string): string {
+  if (displayName && displayName.trim().length > 0) {
+    return displayName.trim();
+  }
+
   if (!authorId) {
     return "Unknown";
   }
@@ -165,7 +177,13 @@ function formatTimestamp(value: string): string {
     return value;
   }
 
-  return date.toLocaleString();
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 export function CommentTree(props: CommentTreeProps) {
@@ -367,19 +385,25 @@ export function ReportComposer(props: ReportComposerProps) {
 
 const styles = StyleSheet.create({
   commentList: {
-    gap: 12
+    gap: spacing.md
   },
   commentCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
     padding: 12,
-    gap: 8
+    gap: spacing.xs
   },
   replyCard: {
-    marginLeft: 12,
-    borderColor: "#cbd5e1"
+    borderColor: "#d4e2f2",
+    backgroundColor: colors.surfaceMuted
+  },
+  replyCardLevel1: {
+    marginLeft: 12
+  },
+  replyCardLevel2: {
+    marginLeft: 24
   },
   commentHeader: {
     flexDirection: "row",
@@ -392,27 +416,29 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   commentLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    color: "#1e293b"
+    color: colors.textPrimary,
+    textTransform: "uppercase"
   },
   commentMeta: {
-    fontSize: 12,
-    color: "#64748b"
+    fontSize: typography.caption,
+    color: colors.textMuted
   },
   acceptedBadge: {
     alignSelf: "flex-start",
     fontSize: 11,
     fontWeight: "700",
-    color: "#166534",
+    color: colors.success,
     backgroundColor: "#dcfce7",
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 999
+    borderRadius: radius.pill
   },
   commentBody: {
-    fontSize: 15,
-    color: "#0f172a"
+    fontSize: typography.body,
+    color: colors.textPrimary,
+    lineHeight: 22
   },
   commentActions: {
     flexDirection: "row",
@@ -421,49 +447,51 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     borderWidth: 1,
-    borderColor: "#94a3b8",
-    borderRadius: 999,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.pill,
     paddingHorizontal: 10,
-    paddingVertical: 6
+    paddingVertical: 6,
+    backgroundColor: colors.surface
   },
   actionButtonDisabled: {
     opacity: 0.55
   },
   actionButtonLabel: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "600",
-    color: "#334155"
+    color: colors.textPrimary
   },
   repliesBlock: {
-    gap: 10
+    gap: 10,
+    marginTop: 6
   },
   emptyText: {
-    fontSize: 14,
-    color: "#64748b"
+    fontSize: typography.bodySmall,
+    color: colors.textMuted
   },
   composerCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     padding: 12,
     gap: 10,
-    backgroundColor: "#ffffff"
+    backgroundColor: colors.surface
   },
   reportCard: {
     borderWidth: 1,
     borderColor: "#fecaca",
-    borderRadius: 10,
+    borderRadius: radius.md,
     padding: 12,
     gap: 10,
     backgroundColor: "#fff1f2"
   },
   composerTitle: {
-    fontSize: 14,
+    fontSize: typography.bodySmall,
     fontWeight: "700",
-    color: "#0f172a"
+    color: colors.textPrimary
   },
   warningText: {
-    fontSize: 13,
+    fontSize: typography.bodySmall,
     color: "#b45309"
   },
   reportReasonWrap: {
@@ -474,17 +502,17 @@ const styles = StyleSheet.create({
   reasonChip: {
     paddingVertical: 8,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: "#fda4af",
-    backgroundColor: "#ffffff"
+    backgroundColor: colors.surface
   },
   reasonChipSelected: {
     borderColor: "#be123c",
     backgroundColor: "#be123c"
   },
   reasonChipLabel: {
-    fontSize: 12,
+    fontSize: typography.caption,
     color: "#9f1239"
   },
   reasonChipLabelSelected: {
@@ -493,17 +521,18 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 10,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
     minHeight: 96,
     fontSize: 15,
-    color: "#0f172a"
+    color: colors.textPrimary,
+    backgroundColor: colors.surface
   },
   submitButton: {
-    borderRadius: 10,
-    backgroundColor: "#0f172a",
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
     paddingVertical: 10,
     alignItems: "center"
   },

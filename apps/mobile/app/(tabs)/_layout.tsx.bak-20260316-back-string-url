@@ -1,0 +1,209 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs, useLocalSearchParams, useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+
+function HomeHeaderTitle() {
+  return (
+    <View style={styles.homeHeaderTitleWrap}>
+      <Text style={styles.homeHeaderTitle}>LUCL</Text>
+      <Text style={styles.homeHeaderSubtitle}>Link Your China Life</Text>
+    </View>
+  );
+}
+
+function BackHeaderButton() {
+  const router = useRouter();
+
+  return (
+    <Pressable onPress={() => router.back()} style={styles.backButton}>
+      <Ionicons name="chevron-back" size={20} color="#111827" />
+      <Text style={styles.backButtonLabel}>Back</Text>
+    </Pressable>
+  );
+}
+
+function StudyParentBackHeaderButton() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ universityId?: string | string[] }>();
+  const rawUniversityId = params.universityId;
+  const universityId = Array.isArray(rawUniversityId) ? rawUniversityId[0] : rawUniversityId;
+
+  return (
+    <Pressable
+      onPress={() => {
+        if (universityId) {
+          router.replace({
+            pathname: "/(tabs)/universities/[universityId]",
+            params: {
+              universityId,
+              section: "study"
+            }
+          } as never);
+          return;
+        }
+        router.back();
+      }}
+      style={styles.backButton}
+    >
+      <Ionicons name="chevron-back" size={20} color="#111827" />
+      <Text style={styles.backButtonLabel}>Back</Text>
+    </Pressable>
+  );
+}
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        headerTitleAlign: "center",
+        tabBarActiveTintColor: "#111111",
+        tabBarInactiveTintColor: "#8E8E93"
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "LUCL",
+          headerTitle: () => <HomeHeaderTitle />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "home" : "home-outline"}
+              size={size}
+              color={color}
+            />
+          )
+        }}
+      />
+
+      <Tabs.Screen
+        name="fun"
+        options={{
+          title: "Life",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "sparkles" : "sparkles-outline"}
+              size={size}
+              color={color}
+            />
+          )
+        }}
+      />
+
+      <Tabs.Screen
+        name="compose"
+        options={{
+          title: "Compose",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "add-circle" : "add-circle-outline"}
+              size={size}
+              color={color}
+            />
+          )
+        }}
+      />
+
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Notifications",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "heart" : "heart-outline"}
+              size={size}
+              color={color}
+            />
+          )
+        }}
+      />
+
+      <Tabs.Screen
+        name="me"
+        options={{
+          title: "Me",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "person" : "person-outline"}
+              size={size}
+              color={color}
+            />
+          )
+        }}
+      />
+
+      <Tabs.Screen
+        name="universities/[universityId]"
+        options={{
+          href: null,
+          title: "University",
+          headerLeft: () => <BackHeaderButton />
+        }}
+      />
+
+      <Tabs.Screen
+        name="universities/[universityId]/study/[degree]"
+        options={{
+          href: null,
+          title: "Study",
+          headerLeft: () => <StudyParentBackHeaderButton />
+        }}
+      />
+
+      <Tabs.Screen
+        name="posts/[postId]"
+        options={{
+          href: null,
+          title: "Post",
+          headerLeft: () => <BackHeaderButton />
+        }}
+      />
+
+      <Tabs.Screen
+        name="qa/[qaId]"
+        options={{
+          href: null,
+          title: "Q&A",
+          headerLeft: () => <BackHeaderButton />
+        }}
+      />
+
+      <Tabs.Screen
+        name="my-posts"
+        options={{
+          href: null,
+          title: "My Posts",
+          headerLeft: () => <BackHeaderButton />
+        }}
+      />
+    </Tabs>
+  );
+}
+
+const styles = StyleSheet.create({
+  homeHeaderTitleWrap: {
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  homeHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827"
+  },
+  homeHeaderSubtitle: {
+    marginTop: 1,
+    fontSize: 10,
+    color: "#6b7280"
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginLeft: 4
+  },
+  backButtonLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827"
+  }
+});

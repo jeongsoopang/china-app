@@ -1,0 +1,143 @@
+import { updateUserProfileAction } from "../../../lib/users/actions";
+import { fetchAdminUsers } from "../../../lib/users/users.service";
+
+export const dynamic = "force-dynamic";
+
+const roleOptions = [
+  "all",
+  "bronze",
+  "silver",
+  "gold",
+  "platinum",
+  "master",
+  "grandmaster"
+] as const;
+
+const verifiedOptions = [
+  { value: "all", label: "All" },
+  { value: "true", label: "Verified" },
+  { value: "false", label: "Unverified" }
+] as const;
+
+type UsersPageProps = {
+  searchParams?: Promise<{
+    q?: string;
+    role?: string;
+    verified?: string;
+  }>;
+};
+
+function formatTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+export default async function UsersPage({ searchParams }: UsersPageProps) {
+  const params = (await searchParams) ?? {};
+  const query = params.q ?? "";
+  const role = params.role ?? "all";
+  const verified = params.verified ?? "all";
+
+  let usersError: string | null = null;
+  let users = [] as Awaited<ReturnType<typeof fetchAdminUsers>>;
+
+  try {
+    users = await fetchAdminUsers({
+      query,
+      role,
+      verified: verified as "all" | "true" | "false"
+    });
+  } catch (error) {
+    usersError = error instanceof Error ? error.message : "Failed to load users.";
+  }
+
+  return (
+    <section>
+      <h2>Users</h2>
+      <p>Review users and update role.</p>
+
+      <form method="get" className="users-filter-form">
+        <label>
+          Search Name
+          <input name="q" defaultValue={query} placeholder="Display name" />
+        </label>
+
+        <label>
+          Role
+          <select name="role" defaultValue={role}>
+            {roleOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Verification
+          <select name="verified" defaultValue={verified}>
+            {verifiedOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button type="submit">Apply Filters</button>
+      </form>
+
+      {usersError ? <p className="error-text">{usersError}</p> : null}
+
+      {!usersError && users.length === 0 ? (
+        <p>No users found.</p>
+      ) : (
+        <div className="users-table-wrap">
+          <table className="users-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>University</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Verified</th>
+                <th>Created</th>
+                <th>Edit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id}>
+                  <td>
+                    <strong>{user.display_name}</strong>
+                    <div className="muted-text">{user.id}</div>
+                  </td>
+                  <td>{user.university_label ?? user.verified_university_id ?? "-"}</td>
+                  <td>{user.login_email ?? "-"}</td>
+                  <td>{user.role}</td>
+                  <td>{user.is_school_verified ? "Yes" : "No"}</td>
+                  <td>{formatTime(user.created_at)}</td>
+                  <td>
+                    <form action={updateUserProfileAction} className="users-edit-form">
+                      <input type="hidden" name="userId" value={user.id} />
+                      <select name="role" defaultValue={user.role} aria-label="Role">
+                        {roleOptions
+                          .filter((value) => value !== "all")
+                          .map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                      </select>
+                      <button type="submit">Save</button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}

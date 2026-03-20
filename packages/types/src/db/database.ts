@@ -52,37 +52,31 @@ export type Database = {
       };
       categories: {
         Row: {
-          created_at: string;
-          description: string | null;
-          id: string;
-          is_active: boolean;
-          name: string;
-          section_id: string;
+          id: number;
+          section_id: number;
+          university_specific: boolean;
+          name_ko: string;
           slug: string;
           sort_order: number;
-          updated_at: string;
+          is_active: boolean;
         };
         Insert: {
-          created_at?: string;
-          description?: string | null;
-          id?: string;
-          is_active?: boolean;
-          name: string;
-          section_id: string;
+          id?: number;
+          section_id: number;
+          university_specific?: boolean;
+          name_ko: string;
           slug: string;
           sort_order?: number;
-          updated_at?: string;
+          is_active?: boolean;
         };
         Update: {
-          created_at?: string;
-          description?: string | null;
-          id?: string;
-          is_active?: boolean;
-          name?: string;
-          section_id?: string;
+          id?: number;
+          section_id?: number;
+          university_specific?: boolean;
+          name_ko?: string;
           slug?: string;
           sort_order?: number;
-          updated_at?: string;
+          is_active?: boolean;
         };
         Relationships: [
           {
@@ -388,6 +382,7 @@ export type Database = {
           category_id: string | null;
           comment_count: number;
           created_at: string;
+          degree: string | null;
           id: number;
           is_anonymous: boolean;
           last_activity_at: string;
@@ -410,6 +405,7 @@ export type Database = {
           category_id?: string | null;
           comment_count?: number;
           created_at?: string;
+          degree?: string | null;
           id?: number;
           is_anonymous?: boolean;
           last_activity_at?: string;
@@ -432,6 +428,7 @@ export type Database = {
           category_id?: string | null;
           comment_count?: number;
           created_at?: string;
+          degree?: string | null;
           id?: number;
           is_anonymous?: boolean;
           last_activity_at?: string;
@@ -590,47 +587,24 @@ export type Database = {
       };
       sections: {
         Row: {
-          created_at: string;
-          description: string | null;
-          id: string;
+          id: number;
+          code: Database["public"]["Enums"]["section_code"];
+          name_ko: string;
           is_active: boolean;
-          name: string;
-          slug: string;
-          sort_order: number;
-          university_id: string;
-          updated_at: string;
         };
         Insert: {
-          created_at?: string;
-          description?: string | null;
-          id?: string;
+          id?: number;
+          code: Database["public"]["Enums"]["section_code"];
+          name_ko: string;
           is_active?: boolean;
-          name: string;
-          slug: string;
-          sort_order?: number;
-          university_id: string;
-          updated_at?: string;
         };
         Update: {
-          created_at?: string;
-          description?: string | null;
-          id?: string;
+          id?: number;
+          code?: Database["public"]["Enums"]["section_code"];
+          name_ko?: string;
           is_active?: boolean;
-          name?: string;
-          slug?: string;
-          sort_order?: number;
-          university_id?: string;
-          updated_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: "sections_university_id_fkey";
-            columns: ["university_id"];
-            isOneToOne: false;
-            referencedRelation: "universities";
-            referencedColumns: ["id"];
-          }
-        ];
+        Relationships: [];
       };
       universities: {
         Row: {
@@ -1045,6 +1019,7 @@ export type Database = {
         | "verified"
         | "rejected"
         | "expired";
+      section_code: "life" | "study" | "qa" | "fun" | "vlog";
       user_role:
         | "bronze"
         | "silver"

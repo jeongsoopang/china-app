@@ -23,6 +23,7 @@ export type ThreadComment = Pick<
   | "parent_comment_id"
   | "like_count"
 > & {
+  author_display_name?: string | null;
   is_best_answer: boolean;
   replies: ThreadComment[];
 };

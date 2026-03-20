@@ -3,6 +3,13 @@ import { useEffect } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAuthSession } from "../../src/features/auth/auth-session";
 import { useComposePost } from "../../src/features/compose/use-compose-post";
+import { colors, radius, spacing, typography } from "../../src/ui/theme";
+
+const STUDY_DEGREES = [
+  { value: "bachelor", label: "Bachelor" },
+  { value: "master", label: "Master" },
+  { value: "phd", label: "PhD" }
+] as const;
 
 export default function ComposeScreen() {
   const router = useRouter();
@@ -10,6 +17,7 @@ export default function ComposeScreen() {
   const verifiedEmail = auth.user?.profile?.verified_school_email ?? null;
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
   const isVerified = Boolean(verifiedEmail && verifiedUniversityId);
+
   const {
     state,
     isLoading,
@@ -25,6 +33,7 @@ export default function ComposeScreen() {
     setTagsInput,
     selectSection,
     selectCategory,
+    selectDegree,
     selectUniversity,
     updateParagraphText,
     addParagraphAfter,
@@ -41,34 +50,6 @@ export default function ComposeScreen() {
 
     router.replace(state.createdPostRoute as never);
   }, [router, state.createdPostRoute]);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") {
-      return;
-    }
-
-    const sessionExists = auth.isSignedIn;
-    const authUserId = auth.user?.authUser.id ?? null;
-    const profileId = auth.user?.profile?.id ?? null;
-    const profileRole = auth.user?.profile?.role ?? null;
-    const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
-
-    console.log("[compose] session exists:", sessionExists);
-    console.log("[compose] auth user id:", authUserId);
-    console.log("[compose] profile id:", profileId);
-    console.log("[compose] profile role:", profileRole);
-    console.log("[compose] verified_university_id:", verifiedUniversityId);
-    console.log("[compose] publish disabled reason:", publishDisabledReason);
-    console.log("[compose] navigating to:", state.createdPostRoute);
-  }, [
-    auth.isSignedIn,
-    auth.user?.authUser.id,
-    auth.user?.profile?.id,
-    auth.user?.profile?.role,
-    auth.user?.profile?.verified_university_id,
-    publishDisabledReason,
-    state.createdPostRoute
-  ]);
 
   const isBootstrapping = state.action === "bootstrapping";
   const isSubmitting = state.action === "submitting";
@@ -115,9 +96,7 @@ export default function ComposeScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.heading}>Compose</Text>
-      <Text style={styles.metaText}>
-        School verified: {isVerified ? "Yes" : "No"}
-      </Text>
+      <Text style={styles.metaText}>School verified: {isVerified ? "Yes" : "No"}</Text>
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>Post Type</Text>
@@ -143,6 +122,31 @@ export default function ComposeScreen() {
           })}
         </View>
       </View>
+
+      {state.selectedSectionCode === "study" ? (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Degree</Text>
+          <Text style={styles.helperText}>Select the degree before choosing a study category.</Text>
+          <View style={styles.optionWrap}>
+            {STUDY_DEGREES.map((option) => {
+              const selected = state.selectedDegree === option.value;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  disabled={isLoading}
+                  onPress={() => selectDegree(option.value)}
+                  style={[styles.optionChip, selected && styles.optionChipSelected]}
+                >
+                  <Text style={[styles.optionChipLabel, selected && styles.optionChipLabelSelected]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>Category</Text>
@@ -171,18 +175,21 @@ export default function ComposeScreen() {
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>University</Text>
+
         {state.selectedSectionCode === "fun" ? (
-          <Text style={styles.helperText}>FUN does not use university.</Text>
+          <Text style={styles.helperText}>Life posts do not use university.</Text>
         ) : null}
+
         {state.selectedSectionCode !== "fun" && verifiedUniversityId ? (
           <Text style={styles.helperText}>
             Verified university:{" "}
-            {verifiedUniversity?.shortName ??
-              verifiedUniversity?.name ??
-              verifiedUniversityId}
+            {verifiedUniversity?.shortName ?? verifiedUniversity?.name ?? verifiedUniversityId}
           </Text>
         ) : null}
-        {state.selectedSectionCode !== "fun" && !verifiedUniversityId && state.selectedUniversitySlug ? (
+
+        {state.selectedSectionCode !== "fun" &&
+        !verifiedUniversityId &&
+        state.selectedUniversitySlug ? (
           <Text style={styles.helperText}>
             Selected university:{" "}
             {state.universityOptions.find((item) => item.slug === state.selectedUniversitySlug)
@@ -192,6 +199,7 @@ export default function ComposeScreen() {
               state.selectedUniversitySlug}
           </Text>
         ) : null}
+
         {!universitySelectionLocked ? (
           <View style={styles.optionWrap}>
             {state.universityOptions.map((university) => {
@@ -217,9 +225,11 @@ export default function ComposeScreen() {
             })}
           </View>
         ) : null}
+
         {universitySelectionLocked && state.selectedUniversitySlug ? (
           <Text style={styles.helperText}>Posting is limited to your verified university.</Text>
         ) : null}
+
         {universityRequired ? (
           <Text style={styles.helperText}>Bronze Q&A posts require university selection.</Text>
         ) : null}
@@ -238,7 +248,7 @@ export default function ComposeScreen() {
       </View>
 
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Abstract (optional)</Text>
+        <Text style={styles.label}>Abstract</Text>
         <TextInput
           editable={!isLoading}
           placeholder="Short summary for previews"
@@ -247,6 +257,7 @@ export default function ComposeScreen() {
           value={state.abstract}
           onChangeText={setAbstract}
         />
+        <Text style={styles.helperText}>Abstract is required.</Text>
       </View>
 
       <View style={styles.fieldGroup}>
@@ -268,10 +279,7 @@ export default function ComposeScreen() {
               ) : (
                 <View style={styles.imageBlock}>
                   {block.localUri || block.imageUrl ? (
-                    <Image
-                      source={{ uri: block.imageUrl ?? block.localUri }}
-                      style={styles.imagePreview}
-                    />
+                    <Image source={{ uri: block.imageUrl ?? block.localUri }} style={styles.imagePreview} />
                   ) : (
                     <Text style={styles.helperText}>Image not available.</Text>
                   )}
@@ -295,6 +303,7 @@ export default function ComposeScreen() {
                   </Pressable>
                 </View>
               )}
+
               <View style={styles.blockActions}>
                 <Pressable
                   disabled={isLoading}
@@ -303,6 +312,7 @@ export default function ComposeScreen() {
                 >
                   <Text style={styles.actionChipLabel}>Add Paragraph</Text>
                 </Pressable>
+
                 <Pressable
                   disabled={isLoading}
                   onPress={() => insertImageAfter(index)}
@@ -312,6 +322,7 @@ export default function ComposeScreen() {
                     {isSelectingImages ? "Selecting..." : "Insert Image"}
                   </Text>
                 </Pressable>
+
                 <Pressable
                   disabled={isLoading}
                   onPress={() => removeBlock(block.id)}
@@ -381,194 +392,176 @@ export default function ComposeScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
-    gap: 14,
-    backgroundColor: "#f8fafc"
+    padding: spacing.lg,
+    gap: spacing.md,
+    backgroundColor: colors.background
   },
   loadingContainer: {
     flex: 1,
-    padding: 20,
-    gap: 12,
-    backgroundColor: "#f8fafc"
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.sm,
+    padding: spacing.lg,
+    backgroundColor: colors.background
   },
   heading: {
-    fontSize: 28,
+    fontSize: typography.title,
     fontWeight: "700",
-    color: "#0f172a"
-  },
-  caption: {
-    fontSize: 14,
-    color: "#475569"
-  },
-  metaText: {
-    fontSize: 12,
-    color: "#64748b"
+    color: colors.textPrimary
   },
   text: {
-    fontSize: 15,
-    color: "#334155"
+    fontSize: typography.body,
+    color: colors.textSecondary
+  },
+  metaText: {
+    fontSize: typography.caption,
+    color: colors.textMuted
   },
   fieldGroup: {
-    gap: 8
+    gap: spacing.sm
   },
   label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#334155"
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  helperText: {
+    fontSize: typography.bodySmall,
+    color: colors.textMuted
   },
   input: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: "#0f172a",
-    backgroundColor: "#ffffff"
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: typography.body,
+    color: colors.textPrimary
   },
   paragraphInput: {
-    minHeight: 120,
-    textAlignVertical: "top"
-  },
-  editorSection: {
-    gap: 12
-  },
-  blockCard: {
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    backgroundColor: "#ffffff",
-    padding: 12,
-    gap: 8
-  },
-  blockActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    rowGap: 8,
-    columnGap: 8
-  },
-  actionChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "#ffffff"
-  },
-  actionChipSelected: {
-    borderColor: "#0f172a",
-    backgroundColor: "#0f172a"
-  },
-  actionChipDanger: {
-    borderColor: "#fecaca",
-    backgroundColor: "#fff1f2"
-  },
-  actionChipLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#0f172a"
-  },
-  actionChipLabelSelected: {
-    color: "#f8fafc"
-  },
-  actionChipLabelDanger: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#b91c1c"
-  },
-  imageBlock: {
-    gap: 8
+    minHeight: 120
   },
   optionWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    rowGap: 8,
-    columnGap: 8
+    gap: spacing.sm
   },
   optionChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff"
+    borderColor: colors.borderStrong,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 10
   },
   optionChipSelected: {
-    borderColor: "#0f172a",
-    backgroundColor: "#0f172a"
+    backgroundColor: colors.textPrimary,
+    borderColor: colors.textPrimary
   },
   optionChipDisabled: {
-    opacity: 0.55
+    opacity: 0.5
   },
   optionChipLabel: {
-    fontSize: 13,
-    color: "#334155"
+    fontSize: typography.bodySmall,
+    fontWeight: "600",
+    color: colors.textPrimary
   },
   optionChipLabelSelected: {
-    color: "#f8fafc",
-    fontWeight: "600"
+    color: colors.background
   },
-  helperText: {
-    fontSize: 12,
-    color: "#64748b"
+  editorSection: {
+    gap: spacing.sm
+  },
+  blockCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: 12,
+    gap: spacing.sm
+  },
+  imageBlock: {
+    gap: spacing.sm
+  },
+  imagePreview: {
+    width: "100%",
+    height: 220,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted
+  },
+  blockActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
+  },
+  actionChip: {
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  actionChipSelected: {
+    backgroundColor: colors.textPrimary,
+    borderColor: colors.textPrimary
+  },
+  actionChipLabel: {
+    fontSize: typography.caption,
+    fontWeight: "600",
+    color: colors.textPrimary
+  },
+  actionChipLabelSelected: {
+    color: colors.background
+  },
+  actionChipDanger: {
+    borderColor: colors.error
+  },
+  actionChipLabelDanger: {
+    fontSize: typography.caption,
+    fontWeight: "600",
+    color: colors.error
   },
   primaryButton: {
-    borderRadius: 10,
-    backgroundColor: "#0f172a",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    alignItems: "center"
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    backgroundColor: colors.textPrimary,
+    paddingVertical: 14,
+    paddingHorizontal: 18
   },
-  secondaryButton: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#0f172a",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    alignItems: "center"
+  primaryButtonLabel: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.background
   },
   buttonDisabled: {
     opacity: 0.5
   },
-  primaryButtonLabel: {
-    color: "#f8fafc",
-    fontWeight: "600"
-  },
-  secondaryButtonLabel: {
-    color: "#0f172a",
-    fontWeight: "600"
-  },
-  imagePreview: {
-    width: "100%",
-    height: 180,
-    borderRadius: 8,
-    backgroundColor: "#e2e8f0"
-  },
   failureCard: {
+    gap: spacing.xs,
     borderWidth: 1,
-    borderColor: "#fecaca",
-    borderRadius: 10,
-    backgroundColor: "#fff1f2",
-    padding: 10,
-    gap: 4
+    borderColor: colors.error,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: 12
   },
   failureTitle: {
-    fontSize: 13,
+    fontSize: typography.bodySmall,
     fontWeight: "700",
-    color: "#9f1239"
+    color: colors.error
   },
   failureText: {
-    fontSize: 12,
-    color: "#9f1239"
+    fontSize: typography.caption,
+    color: colors.error
   },
   infoText: {
-    fontSize: 14,
-    color: "#166534"
+    fontSize: typography.bodySmall,
+    color: colors.success
   },
   errorText: {
-    fontSize: 14,
-    color: "#b91c1c"
+    fontSize: typography.bodySmall,
+    color: colors.error
   }
 });

@@ -11,6 +11,36 @@ type MarkNotificationReadRpcReturn =
 type MarkAllNotificationsReadRpcReturn =
   Database["public"]["Functions"]["mark_all_notifications_read"]["Returns"];
 
+type RawNotificationRow = {
+  id: string | number;
+  title: string | null;
+  body: string | null;
+  type: string | null;
+  ref_type: string | null;
+  ref_id: string | number | null;
+  is_read: boolean | null;
+  created_at: string | null;
+};
+
+type RawAnnouncementRow = {
+  id: number;
+  title: string | null;
+  outline: string | null;
+  body: string | null;
+  published_at: string | null;
+  created_at: string | null;
+  is_published: boolean | null;
+};
+
+export type AnnouncementDetail = {
+  id: string;
+  title: string;
+  outline: string;
+  body: string;
+  published_at: string | null;
+  created_at: string;
+};
+
 function normalizeNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -71,10 +101,34 @@ function parseMarkAllNotificationsReadResult(
   };
 }
 
+function mapNotificationRow(row: RawNotificationRow): NotificationListItem {
+  return {
+    id: String(row.id),
+    title: row.title ?? "",
+    body: row.body ?? "",
+    type: row.type ?? "notification",
+    ref_type: row.ref_type ?? null,
+    ref_id: row.ref_id === null || row.ref_id === undefined ? null : String(row.ref_id),
+    is_read: Boolean(row.is_read),
+    created_at: row.created_at ?? ""
+  };
+}
+
+function mapAnnouncementRow(row: RawAnnouncementRow): AnnouncementDetail {
+  return {
+    id: String(row.id),
+    title: row.title ?? "",
+    outline: row.outline ?? "",
+    body: row.body ?? "",
+    published_at: row.published_at,
+    created_at: row.created_at ?? ""
+  };
+}
+
 export async function fetchNotifications(limit = 50): Promise<NotificationListItem[]> {
   const { data, error } = await supabase
     .from("notifications")
-    .select("id, title, message, type, post_id, is_read, created_at")
+    .select("id, title, body, type, ref_type, ref_id, is_read, created_at")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -82,7 +136,34 @@ export async function fetchNotifications(limit = 50): Promise<NotificationListIt
     throw error;
   }
 
-  return data ?? [];
+  const rows = (data ?? []) as unknown as RawNotificationRow[];
+  return rows.map(mapNotificationRow);
+}
+
+export async function fetchAnnouncementDetailById(
+  announcementId: string
+): Promise<AnnouncementDetail> {
+  const numericId = normalizeNumber(announcementId, 0);
+
+  if (numericId <= 0) {
+    throw new Error("Invalid announcement id.");
+  }
+
+  const announcementsClient = (supabase as unknown as {
+    from: (table: string) => any;
+  }).from("announcements");
+
+  const { data, error } = await announcementsClient
+    .select("id, title, outline, body, published_at, created_at, is_published")
+    .eq("id", numericId)
+    .eq("is_published", true)
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return mapAnnouncementRow(data as unknown as RawAnnouncementRow);
 }
 
 export async function markNotificationRead(

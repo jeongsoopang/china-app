@@ -45,11 +45,12 @@ function toThreadPost(row: PostRow): ThreadPost {
   };
 }
 
-function toThreadComment(row: CommentRow): ThreadComment {
+function toThreadComment(row: CommentRow, displayName?: string | null): ThreadComment {
   return {
     id: row.id,
     post_id: row.post_id,
     author_id: row.author_id,
+    author_display_name: displayName ?? null,
     body: row.body,
     created_at: row.created_at,
     parent_comment_id: row.parent_comment_id,
@@ -68,12 +69,15 @@ function toThreadPostImage(row: PostImageRow): ThreadPostImage {
   };
 }
 
-function buildCommentTree(comments: CommentRow[]): ThreadComment[] {
+function buildCommentTree(
+  comments: CommentRow[],
+  displayNames: Map<string, string | null>
+): ThreadComment[] {
   const byId = new Map<number, ThreadComment>();
   const roots: ThreadComment[] = [];
 
   comments.forEach((comment) => {
-    const node = toThreadComment(comment);
+    const node = toThreadComment(comment, displayNames.get(comment.author_id) ?? null);
     byId.set(node.id, node);
   });
 
@@ -254,7 +258,26 @@ export async function fetchThreadData(
     ...toThreadPost(postData),
     images: (imagesData ?? []).map(toThreadPostImage)
   };
-  const topLevelComments = buildCommentTree(commentsData ?? []);
+  const commentRows = commentsData ?? [];
+  const authorIds = Array.from(new Set(commentRows.map((comment) => comment.author_id)));
+  const displayNames = new Map<string, string | null>();
+
+  if (authorIds.length > 0) {
+    const { data: profileData, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("id, display_name")
+      .in("id", authorIds);
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    (profileData ?? []).forEach((profile) => {
+      displayNames.set(profile.id, profile.display_name ?? null);
+    });
+  }
+
+  const topLevelComments = buildCommentTree(commentRows, displayNames);
   const acceptedAnswerCommentId =
     mode === "qa" ? findAcceptedAnswerCommentId(post, topLevelComments) : null;
 
@@ -366,8 +389,16 @@ export function mapDiscussionError(error: unknown): string {
 
   const normalized = message.toLowerCase();
 
+  if (normalized.includes("bronze") && normalized.includes("only comment on q&a")) {
+    return "Bronze users can only comment on Q&A posts.";
+  }
+
   if (normalized.includes("bronze") && normalized.includes("cannot answer")) {
     return "Bronze users cannot submit top-level answers on Q&A posts.";
+  }
+
+  if (normalized.includes("bronze") && normalized.includes("5 comments") && normalized.includes("shanghai day")) {
+    return "Bronze users can submit up to 5 comments per Shanghai day.";
   }
 
   if (normalized.includes("only the question author") || normalized.includes("question author")) {

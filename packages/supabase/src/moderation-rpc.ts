@@ -197,10 +197,12 @@ export async function reviewModerationFlag(
 
 export async function publishAnnouncement(
   client: AppSupabaseClient,
-  announcementId: number
+  announcementId: number,
+  actorUserId: string
 ): Promise<PublishAnnouncementResult> {
   const { data, error } = await client.rpc("publish_announcement", {
-    p_announcement_id: announcementId
+    p_announcement_id: announcementId,
+    p_actor_user_id: actorUserId
   });
 
   if (error) {
@@ -209,8 +211,15 @@ export async function publishAnnouncement(
 
   const record = toRecord(data);
 
+  if (!record) {
+    return {
+      published: false,
+      message: "Publish announcement RPC returned no result."
+    };
+  }
+
   return {
-    published: record ? Boolean(record.published ?? true) : true,
+    published: Boolean(record.published),
     message: parseMessage(data, record)
   };
 }

@@ -7,6 +7,7 @@ import type {
   ComposeSectionOption,
   CreatePostInput,
   CreatePostResult,
+  StudyDegree,
   UploadedPostImage,
   UniversityOption,
   VerifiedUniversity
@@ -22,7 +23,7 @@ type CategoryCatalog = Record<ComposeSectionCode, CategoryOption[]>;
 const SECTION_CATALOG: SectionCatalog = {
   life: {
     code: "life",
-    label: "Life",
+    label: "School",
     sectionCode: "life"
   },
   study: {
@@ -37,7 +38,7 @@ const SECTION_CATALOG: SectionCatalog = {
   },
   fun: {
     code: "fun",
-    label: "FUN",
+    label: "Life",
     sectionCode: "fun"
   }
 };
@@ -46,8 +47,7 @@ const CATEGORY_CATALOG: CategoryCatalog = {
   life: [
     { slug: "life-facilities", label: "학교시설", sectionCode: "life" },
     { slug: "life-food", label: "식당", sectionCode: "life" },
-    { slug: "life-dorm", label: "기숙사", sectionCode: "life" },
-    { slug: "life-daily", label: "하루소개", sectionCode: "life" }
+    { slug: "life-dorm", label: "기숙사", sectionCode: "life" }
   ],
   study: [
     { slug: "study-major", label: "전공정보", sectionCode: "study" },
@@ -56,13 +56,21 @@ const CATEGORY_CATALOG: CategoryCatalog = {
     { slug: "study-exam-difficulty", label: "시험난이도", sectionCode: "study" },
     { slug: "study-classroom-tips", label: "강의실/수강팁", sectionCode: "study" }
   ],
-  qa: [{ slug: "qa-question", label: "질문", sectionCode: "qa" }],
+  qa: [
+    { slug: "qa-facilities", label: "시설", sectionCode: "qa" },
+    { slug: "qa-dorm", label: "기숙사", sectionCode: "qa" },
+    { slug: "qa-study", label: "학업", sectionCode: "qa" }
+  ],
   fun: [
     { slug: "fun-travel", label: "여행", sectionCode: "fun" },
     { slug: "fun-restaurants", label: "맛집", sectionCode: "fun" },
     { slug: "fun-church", label: "교회", sectionCode: "fun" }
   ]
 };
+
+function canUseNoticeCategory(tier: AccessTier | null | undefined): boolean {
+  return tier === "master" || tier === "grandmaster";
+}
 
 function parseRpcResponseValue(value: unknown): CreatePostResult {
   if (typeof value === "string") {
@@ -114,7 +122,7 @@ function parseCreatePostResponse(data: CreatePostRpcReturn | null): CreatePostRe
   return parseRpcResponseValue(data);
 }
 
-export function getComposeSectionOptions(tier: DbUserTier): ComposeSectionOption[] {
+export function getComposeSectionOptions(tier: AccessTier): ComposeSectionOption[] {
   if (tier === "bronze") {
     return [SECTION_CATALOG.qa];
   }
@@ -134,23 +142,43 @@ export function getDefaultSection(
     return null;
   }
 
-  const funOption = options.find((option) => option.code === "fun");
-  return funOption ?? options[0] ?? null;
+  return options[0] ?? null;
 }
 
-export function isElevatedTier(tier: DbUserTier): boolean {
-  return tier === "silver" || tier === "gold" || tier === "platinum";
+export type AccessTier =
+  | "bronze"
+  | "silver"
+  | "gold"
+  | "platinum"
+  | "master"
+  | "grandmaster";
+
+export function isElevatedTier(tier: AccessTier): boolean {
+  return (
+    tier === "silver" ||
+    tier === "gold" ||
+    tier === "platinum" ||
+    tier === "master" ||
+    tier === "grandmaster"
+  );
 }
 
-const TIER_VALUES: DbUserTier[] = ["bronze", "silver", "gold", "platinum"];
+const TIER_VALUES: AccessTier[] = [
+  "bronze",
+  "silver",
+  "gold",
+  "platinum",
+  "master",
+  "grandmaster"
+];
 
-function isTierValue(value: string | null | undefined): value is DbUserTier {
+function isTierValue(value: string | null | undefined): value is AccessTier {
   return typeof value === "string" && (TIER_VALUES as string[]).includes(value);
 }
 
-export function getAccessTier(profile: UserProfileRow): DbUserTier {
+export function getAccessTier(profile: UserProfileRow): AccessTier {
   const roleTier = isTierValue(profile.role as DbUserRole)
-    ? (profile.role as DbUserTier)
+    ? (profile.role as AccessTier)
     : null;
   const explicitTier = isTierValue(profile.tier) ? profile.tier : null;
 
@@ -158,13 +186,23 @@ export function getAccessTier(profile: UserProfileRow): DbUserTier {
 }
 
 export function getCategoryOptionsForSection(
-  sectionCode: ComposeSectionCode
+  sectionCode: ComposeSectionCode,
+  tier?: AccessTier | null
 ): CategoryOption[] {
-  return CATEGORY_CATALOG[sectionCode] ?? [];
+  const base = CATEGORY_CATALOG[sectionCode] ?? [];
+
+  if (sectionCode === "life" && canUseNoticeCategory(tier)) {
+    return [
+      ...base,
+      { slug: "life-notice", label: "공지", sectionCode: "life" }
+    ];
+  }
+
+  return base;
 }
 
 export function isUniversityRequired(
-  tier: DbUserTier,
+  tier: AccessTier,
   sectionCode: ComposeSectionCode
 ): boolean {
   return tier === "bronze" && sectionCode === "qa";
@@ -175,7 +213,7 @@ export function isUniversitySelectorDisabled(sectionCode: ComposeSectionCode): b
 }
 
 export function getUniversityOptionsForTier(
-  tier: DbUserTier,
+  tier: AccessTier,
   universities: UniversityOption[],
   ownUniversitySlug: string | null
 ): UniversityOption[] {
@@ -314,6 +352,22 @@ export async function updatePostMetadata(params: {
   }
 }
 
+export async function updatePostDegree(
+  postId: number,
+  degree: StudyDegree | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("posts")
+    .update({
+      degree: degree ?? null
+    })
+    .eq("id", postId);
+
+  if (error) {
+    throw error;
+  }
+}
+
 function parseAttachPostImagesResult(data: AttachPostImagesRpcReturn): AttachPostImagesResult {
   if (typeof data === "string") {
     return {
@@ -413,8 +467,8 @@ export function mapCreatePostError(error: unknown): string {
 
   const message = rawMessage.toLowerCase();
 
-  if (message.includes("bronze") && message.includes("24")) {
-    return "Bronze accounts can post up to 2 questions per rolling 24 hours.";
+  if (message.includes("bronze") && message.includes("1 question") && message.includes("shanghai day")) {
+    return "Bronze accounts can post up to 1 question per Shanghai day.";
   }
 
   if (message.includes("bronze") && message.includes("q&a")) {
@@ -422,7 +476,7 @@ export function mapCreatePostError(error: unknown): string {
   }
 
   if (message.includes("own university") || message.includes("verified university")) {
-    return "Posting is limited to your verified university (or FUN).";
+    return "Posting is limited to your verified university (or LIFE).";
   }
 
   if (message.includes("vlog")) {

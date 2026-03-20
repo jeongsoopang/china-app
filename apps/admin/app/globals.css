@@ -122,6 +122,7 @@ p {
 }
 
 .action-form input,
+.action-form select,
 .action-form button {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -145,4 +146,129 @@ p {
 .error-text {
   margin-top: 0.75rem;
   color: #b91c1c;
+}
+
+.users-filter-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.users-filter-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.users-filter-form input,
+.users-filter-form select,
+.users-filter-form button,
+.users-edit-form input,
+.users-edit-form select,
+.users-edit-form button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  background: #ffffff;
+}
+
+.users-filter-form button,
+.users-edit-form button {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.users-table-wrap {
+  margin-top: 1rem;
+  overflow: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1050px;
+}
+
+.users-table th,
+.users-table td {
+  text-align: left;
+  padding: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+.users-table th {
+  font-size: 0.75rem;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.users-edit-form {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(90px, 1fr) minmax(120px, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.muted-text {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.auth-card {
+  margin-top: 1rem;
+  max-width: 520px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.auth-form input,
+.auth-form button,
+.auth-actions button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+
+.auth-form button,
+.auth-actions button {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }

@@ -10,6 +10,7 @@ import {
   fetchActiveUniversities,
   fetchUniversityById,
   getAccessTier,
+  type AccessTier,
   getCategoryOptionsForSection,
   getComposeSectionOptions,
   getDefaultSection,
@@ -21,6 +22,7 @@ import {
   normalizeTags,
   parsePostId,
   updatePostBody,
+  updatePostDegree,
   updatePostMetadata
 } from "./compose.service";
 import type {
@@ -30,6 +32,7 @@ import type {
   ComposeSectionOption,
   ImageUploadFailure,
   SelectedComposeImage,
+  StudyDegree,
   UniversityOption,
   VerifiedUniversity
 } from "./compose.types";
@@ -39,13 +42,14 @@ type ComposeAction = "bootstrapping" | "idle" | "selecting_images" | "submitting
 type ComposeState = {
   action: ComposeAction;
   profile: UserProfileRow | null;
-  tier: DbUserTier | null;
+  tier: AccessTier | null;
   ownUniversitySlug: string | null;
   verifiedUniversity: VerifiedUniversity | null;
   sectionOptions: ComposeSectionOption[];
   categoryOptions: CategoryOption[];
   selectedSectionCode: ComposeSectionCode | null;
   selectedCategorySlug: string | null;
+  selectedDegree: StudyDegree | null;
   universityOptions: UniversityOption[];
   selectedUniversitySlug: string | null;
   title: string;
@@ -71,6 +75,7 @@ const INITIAL_STATE: ComposeState = {
   categoryOptions: [],
   selectedSectionCode: null,
   selectedCategorySlug: null,
+  selectedDegree: null,
   universityOptions: [],
   selectedUniversitySlug: null,
   title: "",
@@ -255,6 +260,10 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     });
   }, [state.blocks]);
 
+  const degreeRequired = useMemo(() => {
+    return state.selectedSectionCode === "study";
+  }, [state.selectedSectionCode]);
+
   const canSubmit = useMemo(() => {
     if (!isSignedIn || isLoading) {
       return false;
@@ -268,7 +277,11 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return false;
     }
 
-    if (!state.title.trim() || !hasEditorContent) {
+    if (!state.title.trim() || !state.abstract.trim() || !hasEditorContent) {
+      return false;
+    }
+
+    if (degreeRequired && !state.selectedDegree) {
       return false;
     }
 
@@ -287,11 +300,15 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     selectedSection,
     selectedCategory,
     hasEditorContent,
+    degreeRequired,
+    state.abstract,
+    state.selectedCategorySlug,
+    state.selectedDegree,
     state.selectedUniversitySlug,
     state.title,
     universityRequired,
     universitySelectorDisabled,
-    state.selectedCategorySlug
+    verifiedUniversityId
   ]);
 
   const publishDisabledReason = useMemo(() => {
@@ -323,8 +340,16 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return "Title is required.";
     }
 
+    if (!state.abstract.trim()) {
+      return "Abstract is required.";
+    }
+
     if (!hasEditorContent) {
       return "Add at least one paragraph or image.";
+    }
+
+    if (degreeRequired && !state.selectedDegree) {
+      return "Select a degree for Study posts.";
     }
 
     if (universityRequired && !state.selectedUniversitySlug && !verifiedUniversityId) {
@@ -336,7 +361,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         return "University list is unavailable. Try again shortly.";
       }
 
-      return "Select a university or switch to FUN.";
+      return "Select a university or switch to Life.";
     }
 
     return null;
@@ -346,8 +371,10 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     profile,
     selectedSection,
     selectedCategory,
+    degreeRequired,
     hasEditorContent,
     state.categoryOptions.length,
+    state.selectedDegree,
     state.selectedUniversitySlug,
     state.title,
     universityRequired,
@@ -377,6 +404,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           categoryOptions: [],
           selectedSectionCode: null,
           selectedCategorySlug: null,
+          selectedDegree: null,
           universityOptions: [],
           selectedUniversitySlug: null,
           errorMessage: null
@@ -389,7 +417,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       const defaultSection = getDefaultSection(sectionOptions);
       const selectedSectionCode = defaultSection?.code ?? null;
       const categoryOptions = selectedSectionCode
-        ? getCategoryOptionsForSection(selectedSectionCode)
+        ? getCategoryOptionsForSection(selectedSectionCode, tier)
         : [];
       const selectedCategorySlug = categoryOptions[0]?.slug ?? null;
 
@@ -440,6 +468,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         categoryOptions,
         selectedSectionCode,
         selectedCategorySlug,
+        selectedDegree: selectedSectionCode === "study" ? "bachelor" : null,
         universityOptions,
         selectedUniversitySlug,
         blocks: current.blocks.length > 0 ? current.blocks : [createParagraphBlock()],
@@ -498,7 +527,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       }
 
       const ownUniversitySlug = current.ownUniversitySlug;
-      const categoryOptions = getCategoryOptionsForSection(code);
+      const categoryOptions = getCategoryOptionsForSection(code, current.tier ?? null);
       const selectedCategorySlug = categoryOptions[0]?.slug ?? null;
       const isFun = code === "fun";
       const selectedUniversitySlug = isFun
@@ -512,6 +541,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         selectedSectionCode: code,
         categoryOptions,
         selectedCategorySlug,
+        selectedDegree: code === "study" ? current.selectedDegree ?? "bachelor" : null,
         selectedUniversitySlug,
         errorMessage: null,
         infoMessage: null
@@ -616,6 +646,15 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     }));
   }
 
+  function selectDegree(degree: StudyDegree) {
+    setState((current) => ({
+      ...current,
+      selectedDegree: degree,
+      errorMessage: null,
+      infoMessage: null
+    }));
+  }
+
   async function submit() {
     if (state.action !== "idle") {
       return;
@@ -642,8 +681,18 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return;
     }
 
+    if (!state.abstract.trim()) {
+      setState((current) => ({ ...current, errorMessage: "Abstract is required." }));
+      return;
+    }
+
     if (!hasEditorContent) {
       setState((current) => ({ ...current, errorMessage: "Add at least one paragraph or image." }));
+      return;
+    }
+
+    if (state.selectedSectionCode === "study" && !state.selectedDegree) {
+      setState((current) => ({ ...current, errorMessage: "Select a degree for Study posts." }));
       return;
     }
 
@@ -658,7 +707,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     if (!universitySelectorDisabled && !state.selectedUniversitySlug && !verifiedUniversityId) {
       setState((current) => ({
         ...current,
-        errorMessage: "Select a university or switch to FUN."
+        errorMessage: "Select a university or switch to Life."
       }));
       return;
     }
@@ -717,6 +766,14 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           });
         } catch (error) {
           infoMessages.push(`Post saved, but metadata update failed: ${mapCreatePostError(error)}`);
+        }
+
+        if (state.selectedSectionCode === "study") {
+          try {
+            await updatePostDegree(postIdNumeric, state.selectedDegree ?? null)
+          } catch (error) {
+            infoMessages.push(`Post saved, but degree update failed: ${mapCreatePostError(error)}`);
+          }
         }
       }
 
@@ -817,6 +874,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         title: "",
         abstract: "",
         blocks: [createParagraphBlock()],
+        selectedDegree: state.selectedSectionCode === "study" ? "bachelor" : null,
         thumbnailBlockId: null,
         locationText: "",
         tagsInput: "",
@@ -862,6 +920,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     setTagsInput,
     selectSection,
     selectCategory,
+    selectDegree,
     selectUniversity,
     addParagraphAfter,
     insertImageAfter,

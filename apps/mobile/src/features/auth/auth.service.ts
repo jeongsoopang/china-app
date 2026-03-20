@@ -15,7 +15,8 @@ export type EmailPasswordCredentials = {
 };
 
 export type SignUpInput = EmailPasswordCredentials & {
-  displayName?: string;
+  displayName: string;
+  realName: string;
 };
 
 export type SignUpResult = {
@@ -85,18 +86,18 @@ export async function signInWithEmailPassword(
 
 export async function signUpWithEmailPassword(input: SignUpInput): Promise<SignUpResult> {
   const normalizedEmail = input.email.trim().toLowerCase();
-  const displayName = input.displayName?.trim();
+  const displayName = input.displayName.trim();
+  const realName = input.realName.trim();
 
   const { data, error } = await supabase.auth.signUp({
     email: normalizedEmail,
     password: input.password,
-    options: displayName
-      ? {
-          data: {
-            display_name: displayName
-          }
-        }
-      : undefined
+    options: {
+      data: {
+        display_name: displayName,
+        real_name: realName
+      }
+    }
   });
 
   if (error) {

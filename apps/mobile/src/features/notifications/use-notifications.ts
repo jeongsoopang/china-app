@@ -103,36 +103,37 @@ export function useNotifications() {
   const canMarkAllAsRead =
     state.isSignedIn && unreadCount > 0 && !isLoading && !isMarkingOne && !isMarkingAll;
 
-  async function onPressNotification(notificationId: string) {
+  async function onPressNotification(notification: NotificationListItem): Promise<boolean> {
     if (!state.isSignedIn || isLoading || isMarkingOne || isMarkingAll) {
-      return;
+      return false;
     }
 
-    const notification = state.notifications.find((item) => item.id === notificationId);
-    if (!notification || notification.is_read) {
-      return;
+    if (notification.is_read) {
+      return true;
     }
 
     setState((current) => ({
       ...current,
       action: "marking_one",
-      processingNotificationId: notificationId,
+      processingNotificationId: notification.id,
       errorMessage: null,
       infoMessage: null
     }));
 
     try {
-      const result = await markNotificationRead(notificationId);
+      const result = await markNotificationRead(notification.id);
 
       setState((current) => ({
         ...current,
         action: "ready",
         processingNotificationId: null,
         notifications: result.marked
-          ? markOneAsRead(current.notifications, notificationId)
+          ? markOneAsRead(current.notifications, notification.id)
           : current.notifications,
         infoMessage: result.message
       }));
+
+      return true;
     } catch (error) {
       setState((current) => ({
         ...current,
@@ -140,6 +141,8 @@ export function useNotifications() {
         processingNotificationId: null,
         errorMessage: mapNotificationsError(error)
       }));
+
+      return false;
     }
   }
 

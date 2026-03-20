@@ -1,0 +1,132 @@
+import type { Database } from "@foryou/types";
+import { supabase } from "../../lib/supabase/client";
+import type {
+  MarkAllNotificationsReadResult,
+  MarkNotificationReadResult,
+  NotificationListItem
+} from "./notifications.types";
+
+type MarkNotificationReadRpcReturn =
+  Database["public"]["Functions"]["mark_notification_read"]["Returns"];
+type MarkAllNotificationsReadRpcReturn =
+  Database["public"]["Functions"]["mark_all_notifications_read"]["Returns"];
+
+function normalizeNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    return Number(value);
+  }
+
+  return fallback;
+}
+
+function parseMarkNotificationReadResult(
+  data: MarkNotificationReadRpcReturn
+): MarkNotificationReadResult {
+  if (typeof data === "string") {
+    return {
+      marked: true,
+      message: data
+    };
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== "object") {
+    return {
+      marked: true,
+      message: null
+    };
+  }
+
+  return {
+    marked: typeof row.marked === "boolean" ? row.marked : true,
+    message: typeof row.message === "string" ? row.message : null
+  };
+}
+
+function parseMarkAllNotificationsReadResult(
+  data: MarkAllNotificationsReadRpcReturn
+): MarkAllNotificationsReadResult {
+  if (typeof data === "string") {
+    return {
+      markedCount: 0,
+      message: data
+    };
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== "object") {
+    return {
+      markedCount: 0,
+      message: null
+    };
+  }
+
+  return {
+    markedCount: normalizeNumber(row.marked_count, 0),
+    message: typeof row.message === "string" ? row.message : null
+  };
+}
+
+export async function fetchNotifications(limit = 50): Promise<NotificationListItem[]> {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("id, title, body, type, ref_type, ref_id, is_read, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function markNotificationRead(
+  notificationId: string
+): Promise<MarkNotificationReadResult> {
+  const { data, error } = await supabase.rpc("mark_notification_read", {
+    p_notification_id: notificationId
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return parseMarkNotificationReadResult(data);
+}
+
+export async function markAllNotificationsRead(): Promise<MarkAllNotificationsReadResult> {
+  const { data, error } = await supabase.rpc("mark_all_notifications_read");
+
+  if (error) {
+    throw error;
+  }
+
+  return parseMarkAllNotificationsReadResult(data);
+}
+
+export function mapNotificationsError(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof (error as { message: unknown }).message === "string"
+        ? (error as { message: string }).message
+        : null;
+
+  if (!message) {
+    return "Unable to complete notification request right now.";
+  }
+
+  if (message.toLowerCase().includes("permission")) {
+    return "You do not have permission to read or update these notifications.";
+  }
+
+  return message;
+}

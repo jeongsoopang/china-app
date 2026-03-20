@@ -12,6 +12,7 @@ export default function SignUpScreen() {
   const auth = useAuthSession();
   const params = useLocalSearchParams<{ redirectTo?: string }>();
   const [displayName, setDisplayName] = useState("");
+  const [realName, setRealName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -31,7 +32,11 @@ export default function SignUpScreen() {
 
   const isSubmitting = auth.action === "signing_up";
   const canSubmit =
-    email.trim().length > 0 && password.length >= 6 && !isSubmitting;
+    displayName.trim().length > 0 &&
+    realName.trim().length > 0 &&
+    email.trim().length > 0 &&
+    password.length >= 6 &&
+    !isSubmitting;
 
   useEffect(() => {
     if (!auth.isLoading && auth.isSignedIn) {
@@ -52,7 +57,8 @@ export default function SignUpScreen() {
       const result = await auth.signUp({
         email: email.trim(),
         password,
-        displayName: displayName.trim() || undefined
+        displayName: displayName.trim(),
+        realName: realName.trim()
       });
 
       if (result.requiresEmailConfirmation) {
@@ -63,7 +69,6 @@ export default function SignUpScreen() {
         return;
       }
 
-      setSuccessMessage("Account created and signed in.");
       router.replace(redirectTo);
     } catch (error) {
       setLocalError(mapAuthError(error));
@@ -75,15 +80,27 @@ export default function SignUpScreen() {
       <Text style={styles.heading}>Sign Up</Text>
 
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Display Name (optional)</Text>
+        <Text style={styles.label}>User Name (Display Name)</Text>
         <TextInput
-          autoCapitalize="words"
-          editable={!isSubmitting}
-          placeholder="Your name"
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={setDisplayName}
+          placeholder="Choose a display name"
           placeholderTextColor="#94a3b8"
           style={styles.input}
           value={displayName}
-          onChangeText={setDisplayName}
+        />
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.label}>Real Name</Text>
+        <TextInput
+          autoCorrect={false}
+          onChangeText={setRealName}
+          placeholder="Enter your real name"
+          placeholderTextColor="#94a3b8"
+          style={styles.input}
+          value={realName}
         />
       </View>
 
@@ -92,13 +109,12 @@ export default function SignUpScreen() {
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
-          editable={!isSubmitting}
           keyboardType="email-address"
+          onChangeText={setEmail}
           placeholder="name@example.com"
           placeholderTextColor="#94a3b8"
           style={styles.input}
           value={email}
-          onChangeText={setEmail}
         />
       </View>
 
@@ -106,27 +122,29 @@ export default function SignUpScreen() {
         <Text style={styles.label}>Password (min 6 chars)</Text>
         <TextInput
           autoCapitalize="none"
-          editable={!isSubmitting}
+          autoCorrect={false}
+          onChangeText={setPassword}
           placeholder="Create password"
           placeholderTextColor="#94a3b8"
           secureTextEntry
           style={styles.input}
           value={password}
-          onChangeText={setPassword}
         />
       </View>
 
-      <Pressable
-        disabled={!canSubmit}
-        onPress={onSubmit}
-        style={[styles.button, !canSubmit && styles.buttonDisabled]}
-      >
-        <Text style={styles.buttonLabel}>{isSubmitting ? "Creating Account..." : "Sign Up"}</Text>
-      </Pressable>
-
       {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
       {localError ? <Text style={styles.errorText}>{localError}</Text> : null}
-      {!localError && auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
+      {auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
+
+      <Pressable
+        disabled={!canSubmit}
+        onPress={() => void onSubmit()}
+        style={[styles.button, !canSubmit && styles.buttonDisabled]}
+      >
+        <Text style={styles.buttonLabel}>
+          {isSubmitting ? "Creating account..." : "Sign Up"}
+        </Text>
+      </Pressable>
 
       {shouldShowSignInButton ? (
         <Link
