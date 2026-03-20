@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { mapAuthError } from "../../src/features/auth/auth.service";
 import { useAuthSession } from "../../src/features/auth/auth-session";
 import { supabase } from "../../src/lib/supabase/client";
@@ -12,40 +12,13 @@ type UniversitySummary = {
   shortName: string | null;
 };
 
-type LogoKey = "sjtu" | "ecnu" | "sisu" | "tongji" | "fudan" | "sufe";
-
-const LOGO_ASSETS: Record<LogoKey, number> = {
-  sjtu: require("../../assets/home/logos/sjtu.png"),
-  ecnu: require("../../assets/home/logos/ecnu.png"),
-  sisu: require("../../assets/home/logos/sisu.png"),
-  tongji: require("../../assets/home/logos/tongji.png"),
-  fudan: require("../../assets/home/logos/fudan.png"),
-  sufe: require("../../assets/home/logos/sufe.png")
-};
-
-function getUniversityLogoSource(university: UniversitySummary | null): number | null {
-  const key = university?.slug?.toLowerCase() ?? university?.shortName?.toLowerCase() ?? "";
-
-  if (key === "sjtu") {
-    return LOGO_ASSETS.sjtu;
-  }
-  if (key === "ecnu") {
-    return LOGO_ASSETS.ecnu;
-  }
-  if (key === "sisu") {
-    return LOGO_ASSETS.sisu;
-  }
-  if (key === "tongji") {
-    return LOGO_ASSETS.tongji;
-  }
-  if (key === "fudan") {
-    return LOGO_ASSETS.fudan;
-  }
-  if (key === "sufe") {
-    return LOGO_ASSETS.sufe;
+function getUniversityBadge(university: UniversitySummary | null): string | null {
+  const value = university?.shortName ?? university?.slug;
+  if (!value) {
+    return null;
   }
 
-  return null;
+  return value.trim().toUpperCase().slice(0, 6);
 }
 
 export default function MeScreen() {
@@ -79,7 +52,7 @@ export default function MeScreen() {
     isPrivateOverride ??
     (typeof auth.user?.profile?.is_private === "boolean" ? auth.user.profile.is_private : false);
 
-  const universityLogoSource = useMemo(() => getUniversityLogoSource(university), [university]);
+  const universityBadge = useMemo(() => getUniversityBadge(university), [university]);
 
   useEffect(() => {
     setIsPrivateOverride(
@@ -254,9 +227,7 @@ export default function MeScreen() {
           </View>
           <View style={styles.identityCard}>
             <View style={styles.nameRow}>
-              {universityLogoSource ? (
-                <Image source={universityLogoSource} style={styles.logo} resizeMode="contain" />
-              ) : null}
+              {universityBadge ? <Text style={styles.universityBadge}>{universityBadge}</Text> : null}
               <Text style={styles.nameText}>{displayName}</Text>
             </View>
           </View>
@@ -354,14 +325,14 @@ const styles = StyleSheet.create({
     color: colors.textPrimary
   },
   settingsGhostButton: {
-    width: 30,
-    height: 30,
+    width: 28,
+    height: 28,
     borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.48)",
+    backgroundColor: "rgba(255,255,255,0.34)",
     borderWidth: 1,
-    borderColor: "rgba(176,196,220,0.44)"
+    borderColor: "rgba(176,196,220,0.34)"
   },
   text: {
     fontSize: 15,
@@ -402,11 +373,11 @@ const styles = StyleSheet.create({
   },
   identityCard: {
     borderRadius: radius.md,
-    backgroundColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.92)",
     borderWidth: 1,
-    borderColor: "rgba(176,196,220,0.52)",
+    borderColor: "rgba(176,196,220,0.66)",
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 6,
     alignSelf: "flex-start"
   },
   nameRow: {
@@ -414,9 +385,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6
   },
-  logo: {
-    width: 16,
-    height: 16
+  universityBadge: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    color: colors.accent,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    paddingHorizontal: 6,
+    paddingVertical: 2
   },
   nameText: {
     fontSize: typography.body,

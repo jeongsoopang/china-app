@@ -519,21 +519,21 @@ const styles = StyleSheet.create({
     padding: 12
   },
   postItemWrap: {
-    gap: 6
+    gap: 7
   },
   authorChip: {
     alignSelf: "flex-start",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 10,
-    paddingVertical: 5
+    borderColor: "#d6deec",
+    backgroundColor: "#f8fbff",
+    paddingHorizontal: 12,
+    paddingVertical: 6
   },
   authorChipLabel: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#334155"
+    color: "#1e3a5f"
   },
   postThumbnail: {
     width: 96,

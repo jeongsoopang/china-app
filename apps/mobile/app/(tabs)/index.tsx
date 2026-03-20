@@ -271,7 +271,7 @@ export default function HomeScreen() {
         </Link>
       </View>
 
-      <View style={styles.segmentCard}>
+      <View style={[styles.segmentCard, styles.rankedSection]}>
         <Text style={styles.segmentTitle}>Recent Posts</Text>
         {isLoadingRecentPosts ? (
           <Text style={styles.segmentDescription}>Loading posts...</Text>
@@ -379,7 +379,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    gap: 14,
+    gap: 10,
     backgroundColor: "#f8fafc"
   },
   heading: {
@@ -388,7 +388,8 @@ const styles = StyleSheet.create({
     color: "#0f172a"
   },
   segmentGrid: {
-    gap: 10
+    gap: 8,
+    marginTop: 2
   },
   segmentCard: {
     borderRadius: 12,
@@ -408,7 +409,12 @@ const styles = StyleSheet.create({
     color: "#475569"
   },
   linkGroup: {
-    gap: 8
+    gap: 8,
+    marginTop: 2,
+    marginBottom: 2
+  },
+  rankedSection: {
+    marginTop: 2
   },
   linkButton: {
     borderRadius: 10,
@@ -433,21 +439,22 @@ const styles = StyleSheet.create({
     padding: 12
   },
   postItemWrap: {
-    gap: 6
+    gap: 7,
+    marginTop: 2
   },
   authorChip: {
     alignSelf: "flex-start",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 10,
-    paddingVertical: 5
+    borderColor: "#d6deec",
+    backgroundColor: "#f8fbff",
+    paddingHorizontal: 12,
+    paddingVertical: 6
   },
   authorChipLabel: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#334155"
+    color: "#1e3a5f"
   },
   postThumbnail: {
     width: 96,

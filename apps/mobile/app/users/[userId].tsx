@@ -37,6 +37,7 @@ export default function UserProfileScreen() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isTogglingFollow, setIsTogglingFollow] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isHiddenPrivateProfile, setIsHiddenPrivateProfile] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isSelf = Boolean(viewerId && resolvedUserId && viewerId === resolvedUserId);
@@ -54,6 +55,7 @@ export default function UserProfileScreen() {
 
       setIsLoading(true);
       setErrorMessage(null);
+      setIsHiddenPrivateProfile(false);
 
       const [{ data: profileData, error: profileError }, followerResult, followingResult] = await Promise.all([
         supabase
@@ -88,6 +90,9 @@ export default function UserProfileScreen() {
 
       if (!row) {
         setPosts([]);
+        if (!isSelf) {
+          setIsHiddenPrivateProfile(true);
+        }
         setIsLoading(false);
         return;
       }
@@ -203,6 +208,50 @@ export default function UserProfileScreen() {
   }
 
   if (!profile) {
+    if (isHiddenPrivateProfile && resolvedUserId) {
+      return (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.profileCard}>
+            <View style={styles.profileTopRow}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarLabel}>P</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.nameText}>Private User</Text>
+                <Text style={styles.metaText}>Profile hidden</Text>
+              </View>
+              {!isSelf ? (
+                <Pressable
+                  onPress={toggleFollow}
+                  disabled={isTogglingFollow}
+                  style={[styles.followButton, isFollowing && styles.followButtonActive]}
+                >
+                  <Text style={[styles.followButtonLabel, isFollowing && styles.followButtonLabelActive]}>
+                    {isTogglingFollow ? "..." : isFollowing ? "Following" : "Follow"}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.countRow}>
+              <View style={styles.countPill}>
+                <Text style={styles.countLabel}>Followers</Text>
+                <Text style={styles.countValue}>{followerCount}</Text>
+              </View>
+              <View style={styles.countPill}>
+                <Text style={styles.countLabel}>Following</Text>
+                <Text style={styles.countValue}>{followingCount}</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.lockCard}>
+            <Ionicons name="lock-closed" size={30} color={colors.textMuted} />
+            <Text style={styles.lockText}>비공개 유저입니다.</Text>
+          </View>
+          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+        </ScrollView>
+      );
+    }
+
     return (
       <View style={styles.container}>
         <Text style={styles.heading}>Profile</Text>
@@ -380,21 +429,27 @@ const styles = StyleSheet.create({
     color: colors.textPrimary
   },
   followButton: {
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.accent,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.accent,
     paddingVertical: 8,
-    paddingHorizontal: 12
+    paddingHorizontal: 14,
+    shadowColor: "#0b1e38",
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2
   },
   followButtonActive: {
     borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceMuted
+    backgroundColor: colors.surfaceMuted,
+    shadowOpacity: 0
   },
   followButtonLabel: {
     fontSize: typography.bodySmall,
     fontWeight: "700",
-    color: colors.accent
+    color: "#f8fafc"
   },
   followButtonLabelActive: {
     color: colors.textPrimary
