@@ -3,6 +3,7 @@ import type { Database } from "./database";
 export type UserProfileRow = Database["public"]["Tables"]["user_profiles"]["Row"];
 export type UniversityRow = Database["public"]["Tables"]["universities"]["Row"];
 export type UniversityDomainRow = Database["public"]["Tables"]["university_domains"]["Row"];
+export type UserFollowRow = Database["public"]["Tables"]["user_follows"]["Row"];
 export type SchoolVerificationRow =
   Database["public"]["Tables"]["user_school_verifications"]["Row"];
 export type SectionRow = Database["public"]["Tables"]["sections"]["Row"];

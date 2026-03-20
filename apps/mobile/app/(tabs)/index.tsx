@@ -6,6 +6,8 @@ import { supabase } from "../../src/lib/supabase/client";
 
 type RecentPost = {
   id: number;
+  authorId: string;
+  authorName: string | null;
   title: string;
   body: string;
   abstract: string | null;
@@ -51,6 +53,7 @@ export default function HomeScreen() {
         .select(
           `
           id,
+          author_id,
           title,
           body,
           abstract,
@@ -74,6 +77,7 @@ export default function HomeScreen() {
         .select(
           `
           id,
+          author_id,
           title,
           body,
           like_count,
@@ -111,6 +115,7 @@ export default function HomeScreen() {
 
     const rows = (data ?? []) as Array<{
       id: number;
+      author_id: string;
       title: string;
       body: string;
       abstract?: string | null;
@@ -125,6 +130,8 @@ export default function HomeScreen() {
     }>;
     const mapped = rows.map((row) => ({
       id: row.id,
+      authorId: row.author_id,
+      authorName: null,
       title: row.title,
       body: row.body,
       abstract: typeof row.abstract === "string" ? row.abstract : null,
@@ -152,6 +159,32 @@ export default function HomeScreen() {
 
     setRecentPosts(mapped);
     setIsLoadingRecentPosts(false);
+
+    const authorIds = Array.from(new Set(mapped.map((post) => post.authorId)));
+    if (authorIds.length === 0) {
+      return;
+    }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("id, display_name")
+      .in("id", authorIds);
+
+    if (profileError) {
+      return;
+    }
+
+    const displayNameMap = new Map<string, string | null>();
+    (profileData ?? []).forEach((profile) => {
+      displayNameMap.set(profile.id, profile.display_name ?? null);
+    });
+
+    setRecentPosts((current) =>
+      current.map((post) => ({
+        ...post,
+        authorName: displayNameMap.get(post.authorId) ?? post.authorName
+      }))
+    );
   }, []);
 
   useEffect(() => {
@@ -254,26 +287,41 @@ export default function HomeScreen() {
           const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
 
           return (
-            <Link key={post.id} asChild href={`/posts/${post.id}`}>
-              <Pressable style={styles.postCard}>
-                {thumbnailUrl ? (
-                  <Image source={{ uri: thumbnailUrl }} style={styles.postThumbnail} />
-                ) : null}
-                <View style={styles.postContent}>
-                  <Text style={styles.postTitle} numberOfLines={2}>
-                    {post.title}
-                  </Text>
-                  <Text style={styles.postMeta}>
-                    ❤️ {post.likeCount}   💬 {post.commentCount}
-                  </Text>
-                  {previewText ? (
-                    <Text style={styles.postPreview} numberOfLines={3}>
-                      {previewText}
-                    </Text>
+            <View key={post.id} style={styles.postItemWrap}>
+              <Link asChild href={`/posts/${post.id}`}>
+                <Pressable style={styles.postCard}>
+                  {thumbnailUrl ? (
+                    <Image source={{ uri: thumbnailUrl }} style={styles.postThumbnail} />
                   ) : null}
-                </View>
-              </Pressable>
-            </Link>
+                  <View style={styles.postContent}>
+                    <Text style={styles.postTitle} numberOfLines={2}>
+                      {post.title}
+                    </Text>
+                    <Text style={styles.postMeta}>
+                      ❤️ {post.likeCount}   💬 {post.commentCount}
+                    </Text>
+                    {previewText ? (
+                      <Text style={styles.postPreview} numberOfLines={3}>
+                        {previewText}
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              </Link>
+              <Link
+                asChild
+                href={{
+                  pathname: "/users/[userId]",
+                  params: {
+                    userId: post.authorId
+                  }
+                }}
+              >
+                <Pressable style={styles.authorChip}>
+                  <Text style={styles.authorChipLabel}>{post.authorName ?? "Unknown"}</Text>
+                </Pressable>
+              </Link>
+            </View>
           );
         })}
       </View>
@@ -331,7 +379,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    gap: 20,
+    gap: 14,
     backgroundColor: "#f8fafc"
   },
   heading: {
@@ -340,7 +388,7 @@ const styles = StyleSheet.create({
     color: "#0f172a"
   },
   segmentGrid: {
-    gap: 12
+    gap: 10
   },
   segmentCard: {
     borderRadius: 12,
@@ -360,7 +408,7 @@ const styles = StyleSheet.create({
     color: "#475569"
   },
   linkGroup: {
-    gap: 10
+    gap: 8
   },
   linkButton: {
     borderRadius: 10,
@@ -383,6 +431,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#ffffff",
     padding: 12
+  },
+  postItemWrap: {
+    gap: 6
+  },
+  authorChip: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  authorChipLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#334155"
   },
   postThumbnail: {
     width: 96,

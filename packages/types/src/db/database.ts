@@ -706,6 +706,39 @@ export type Database = {
           }
         ];
       };
+      user_follows: {
+        Row: {
+          created_at: string;
+          follower_id: string;
+          following_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          follower_id: string;
+          following_id: string;
+        };
+        Update: {
+          created_at?: string;
+          follower_id?: string;
+          following_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_follows_follower_id_fkey";
+            columns: ["follower_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_follows_following_id_fkey";
+            columns: ["following_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       user_profiles: {
         Row: {
           avatar_url: string | null;
@@ -713,6 +746,7 @@ export type Database = {
           created_at: string;
           display_name: string;
           id: string;
+          is_private: boolean;
           is_school_verified: boolean;
           points: number;
           role: Database["public"]["Enums"]["user_role"];
@@ -728,6 +762,7 @@ export type Database = {
           created_at?: string;
           display_name: string;
           id: string;
+          is_private?: boolean;
           is_school_verified?: boolean;
           points?: number;
           role?: Database["public"]["Enums"]["user_role"];
@@ -743,6 +778,7 @@ export type Database = {
           created_at?: string;
           display_name?: string;
           id?: string;
+          is_private?: boolean;
           is_school_verified?: boolean;
           points?: number;
           role?: Database["public"]["Enums"]["user_role"];
@@ -1030,7 +1066,8 @@ export type Database = {
         | "comment_replied"
         | "moderation_notice"
         | "announcement"
-        | "system";
+        | "system"
+        | "followed_user_posted";
       point_ledger_reason:
         | "post_created"
         | "comment_created"

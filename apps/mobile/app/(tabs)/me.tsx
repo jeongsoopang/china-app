@@ -1,13 +1,161 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { mapAuthError } from "../../src/features/auth/auth.service";
 import { useAuthSession } from "../../src/features/auth/auth-session";
+import { supabase } from "../../src/lib/supabase/client";
+import { colors, radius, spacing, typography } from "../../src/ui/theme";
+
+type UniversitySummary = {
+  slug: string | null;
+  shortName: string | null;
+};
+
+type LogoKey = "sjtu" | "ecnu" | "sisu" | "tongji" | "fudan" | "sufe";
+
+const LOGO_ASSETS: Record<LogoKey, number> = {
+  sjtu: require("../../assets/home/logos/sjtu.png"),
+  ecnu: require("../../assets/home/logos/ecnu.png"),
+  sisu: require("../../assets/home/logos/sisu.png"),
+  tongji: require("../../assets/home/logos/tongji.png"),
+  fudan: require("../../assets/home/logos/fudan.png"),
+  sufe: require("../../assets/home/logos/sufe.png")
+};
+
+function getUniversityLogoSource(university: UniversitySummary | null): number | null {
+  const key = university?.slug?.toLowerCase() ?? university?.shortName?.toLowerCase() ?? "";
+
+  if (key === "sjtu") {
+    return LOGO_ASSETS.sjtu;
+  }
+  if (key === "ecnu") {
+    return LOGO_ASSETS.ecnu;
+  }
+  if (key === "sisu") {
+    return LOGO_ASSETS.sisu;
+  }
+  if (key === "tongji") {
+    return LOGO_ASSETS.tongji;
+  }
+  if (key === "fudan") {
+    return LOGO_ASSETS.fudan;
+  }
+  if (key === "sufe") {
+    return LOGO_ASSETS.sufe;
+  }
+
+  return null;
+}
 
 export default function MeScreen() {
   const auth = useAuthSession();
   const [localError, setLocalError] = useState<string | null>(null);
+  const [privacyError, setPrivacyError] = useState<string | null>(null);
+  const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
+  const [isPrivateOverride, setIsPrivateOverride] = useState<boolean | null>(null);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [university, setUniversity] = useState<UniversitySummary | null>(null);
+
   const isSigningOut = auth.action === "signing_out";
+  const authUserId = auth.user?.authUser.id ?? null;
+
+  const displayName =
+    auth.user?.profile?.display_name ??
+    (typeof auth.user?.authUser.user_metadata?.display_name === "string"
+      ? auth.user.authUser.user_metadata.display_name
+      : null) ??
+    "-";
+
+  const role = auth.user?.profile?.role ?? "-";
+  const tier = auth.user?.profile?.tier ?? null;
+  const points = typeof auth.user?.profile?.points === "number" ? auth.user.profile.points : 0;
+  const verifiedSchoolEmail = auth.user?.profile?.verified_school_email ?? null;
+  const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
+  const isSchoolVerified = Boolean(verifiedSchoolEmail && verifiedUniversityId);
+
+  const isPrivateProfile =
+    isPrivateOverride ??
+    (typeof auth.user?.profile?.is_private === "boolean" ? auth.user.profile.is_private : false);
+
+  const universityLogoSource = useMemo(() => getUniversityLogoSource(university), [university]);
+
+  useEffect(() => {
+    setIsPrivateOverride(
+      typeof auth.user?.profile?.is_private === "boolean" ? auth.user.profile.is_private : false
+    );
+  }, [auth.user?.profile?.is_private]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUniversity() {
+      setUniversity(null);
+
+      if (!verifiedUniversityId) {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("universities")
+        .select("slug, short_name")
+        .eq("id", verifiedUniversityId)
+        .maybeSingle();
+
+      if (cancelled || error || !data) {
+        return;
+      }
+
+      const row = data as { slug: string | null; short_name: string | null };
+      setUniversity({
+        slug: row.slug,
+        shortName: row.short_name
+      });
+    }
+
+    void loadUniversity();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [verifiedUniversityId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFollowCounts() {
+      if (!authUserId) {
+        setFollowerCount(0);
+        setFollowingCount(0);
+        return;
+      }
+
+      const [{ count: follower }, { count: following }] = await Promise.all([
+        supabase
+          .from("user_follows")
+          .select("follower_id", { count: "exact", head: true })
+          .eq("following_id", authUserId),
+        supabase
+          .from("user_follows")
+          .select("following_id", { count: "exact", head: true })
+          .eq("follower_id", authUserId)
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setFollowerCount(follower ?? 0);
+      setFollowingCount(following ?? 0);
+    }
+
+    void loadFollowCounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUserId]);
 
   async function onSignOut() {
     if (isSigningOut) {
@@ -20,6 +168,32 @@ export default function MeScreen() {
       await auth.signOut();
     } catch (error) {
       setLocalError(mapAuthError(error));
+    }
+  }
+
+  async function setPrivacy(nextIsPrivate: boolean) {
+    if (!authUserId || isSavingPrivacy) {
+      return;
+    }
+
+    setPrivacyError(null);
+    setIsSavingPrivacy(true);
+
+    try {
+      const { error } = await supabase
+        .from("user_profiles")
+        .update({ is_private: nextIsPrivate })
+        .eq("id", authUserId);
+
+      if (error) {
+        throw error;
+      }
+
+      setIsPrivateOverride(nextIsPrivate);
+    } catch (error) {
+      setPrivacyError(mapAuthError(error));
+    } finally {
+      setIsSavingPrivacy(false);
     }
   }
 
@@ -64,42 +238,85 @@ export default function MeScreen() {
     );
   }
 
-  const displayName =
-    auth.user.profile?.display_name ??
-    (typeof auth.user.authUser.user_metadata?.display_name === "string"
-      ? auth.user.authUser.user_metadata.display_name
-      : null) ??
-    "-";
-  const email = auth.user.authUser.email ?? "-";
-  const role = auth.user.profile?.role ?? "-";
-  const tier = auth.user.profile?.tier ?? null;
-  const verifiedSchoolEmail = auth.user.profile?.verified_school_email ?? null;
-  const verifiedUniversityId = auth.user.profile?.verified_university_id ?? null;
-  const isSchoolVerified = Boolean(verifiedSchoolEmail && verifiedUniversityId);
-
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>Me</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.heading}>Me</Text>
+        <View style={styles.settingsGhostButton}>
+          <Ionicons name="settings-outline" size={16} color={colors.textPrimary} />
+        </View>
+      </View>
+
       <View style={styles.profileCard}>
-        <Text style={styles.profileLabel}>Email</Text>
-        <Text style={styles.profileValue}>{email}</Text>
-        <Text style={styles.profileLabel}>Display Name</Text>
-        <Text style={styles.profileValue}>{displayName}</Text>
-        <Text style={styles.profileLabel}>Role</Text>
-        <Text style={styles.profileValue}>{role}</Text>
-        {tier ? (
-          <>
-            <Text style={styles.profileLabel}>Tier</Text>
-            <Text style={styles.profileValue}>{tier}</Text>
-          </>
-        ) : null}
+        <View style={styles.identityRow}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarLabel}>{displayName.trim().charAt(0).toUpperCase() || "U"}</Text>
+          </View>
+          <View style={styles.identityCard}>
+            <View style={styles.nameRow}>
+              {universityLogoSource ? (
+                <Image source={universityLogoSource} style={styles.logo} resizeMode="contain" />
+              ) : null}
+              <Text style={styles.nameText}>{displayName}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.metaGrid}>
+          <View style={styles.metaPill}>
+            <Text style={styles.metaLabel}>Tier</Text>
+            <Text style={styles.metaValue}>{tier ?? role}</Text>
+          </View>
+          <View style={styles.metaPill}>
+            <Text style={styles.metaLabel}>Points</Text>
+            <Text style={styles.metaValue}>{points}</Text>
+          </View>
+          <View style={styles.metaPill}>
+            <Text style={styles.metaLabel}>Followers</Text>
+            <Text style={styles.metaValue}>{followerCount}</Text>
+          </View>
+          <View style={styles.metaPill}>
+            <Text style={styles.metaLabel}>Following</Text>
+            <Text style={styles.metaValue}>{followingCount}</Text>
+          </View>
+        </View>
+
         <Text style={styles.profileLabel}>School Verified</Text>
         <Text style={styles.profileValue}>{isSchoolVerified ? "Yes" : "No"}</Text>
-        <Text style={styles.profileLabel}>Verified Email</Text>
-        <Text style={styles.profileValue}>{verifiedSchoolEmail ?? "-"}</Text>
         <Text style={styles.profileLabel}>Verified University</Text>
-        <Text style={styles.profileValue}>{verifiedUniversityId ?? "-"}</Text>
+        <Text style={styles.profileValue}>{university?.shortName ?? verifiedUniversityId ?? "-"}</Text>
       </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>Settings</Text>
+        <Text style={styles.profileLabel}>Profile Privacy</Text>
+        <View style={styles.privacySegmentRow}>
+          <Pressable
+            disabled={isSavingPrivacy}
+            onPress={() => setPrivacy(false)}
+            style={[styles.privacySegment, !isPrivateProfile && styles.privacySegmentActive]}
+          >
+            <Text style={[styles.privacySegmentLabel, !isPrivateProfile && styles.privacySegmentLabelActive]}>
+              Public
+            </Text>
+          </Pressable>
+          <Pressable
+            disabled={isSavingPrivacy}
+            onPress={() => setPrivacy(true)}
+            style={[styles.privacySegment, isPrivateProfile && styles.privacySegmentActive]}
+          >
+            <Text style={[styles.privacySegmentLabel, isPrivateProfile && styles.privacySegmentLabelActive]}>
+              Private
+            </Text>
+          </Pressable>
+        </View>
+        <Text style={styles.helperText}>
+          {isPrivateProfile
+            ? "Private profile: 팔로워가 아니면 프로필 내용을 볼 수 없습니다."
+            : "Public profile: 다른 사용자가 프로필을 볼 수 있습니다."}
+        </Text>
+      </View>
+
       <Link asChild href="/verification/school">
         <Pressable style={styles.button}>
           <Text style={styles.buttonLabel}>School Verification</Text>
@@ -112,6 +329,7 @@ export default function MeScreen() {
       >
         <Text style={styles.secondaryButtonLabel}>{isSigningOut ? "Signing Out..." : "Sign Out"}</Text>
       </Pressable>
+      {privacyError ? <Text style={styles.errorText}>{privacyError}</Text> : null}
       {localError ? <Text style={styles.errorText}>{localError}</Text> : null}
       {!localError && auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
     </View>
@@ -123,52 +341,183 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     gap: 12,
-    backgroundColor: "#f8fafc"
+    backgroundColor: colors.background
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
   },
   heading: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#0f172a"
+    color: colors.textPrimary
+  },
+  settingsGhostButton: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.48)",
+    borderWidth: 1,
+    borderColor: "rgba(176,196,220,0.44)"
   },
   text: {
     fontSize: 15,
-    color: "#334155"
+    color: colors.textSecondary
   },
   profileCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
     padding: 12,
-    gap: 4
+    gap: 8,
+    shadowColor: "#0b1e38",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2
+  },
+  identityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  avatarCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  avatarLabel: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.accent
+  },
+  identityCard: {
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255,255,255,0.78)",
+    borderWidth: 1,
+    borderColor: "rgba(176,196,220,0.52)",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignSelf: "flex-start"
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  logo: {
+    width: 16,
+    height: 16
+  },
+  nameText: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  metaGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  metaPill: {
+    minWidth: 86,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    gap: 2
+  },
+  metaLabel: {
+    fontSize: typography.caption,
+    color: colors.textMuted
+  },
+  metaValue: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textPrimary
   },
   profileLabel: {
     fontSize: 12,
-    color: "#64748b"
+    color: colors.textMuted
   },
   profileValue: {
     fontSize: 15,
-    color: "#0f172a",
+    color: colors.textPrimary,
     marginBottom: 4
+  },
+  settingsCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: 12,
+    gap: 8
+  },
+  settingsTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  privacySegmentRow: {
+    flexDirection: "row",
+    gap: 8
+  },
+  privacySegment: {
+    flex: 1,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingVertical: 9,
+    alignItems: "center"
+  },
+  privacySegmentActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent
+  },
+  privacySegmentLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  privacySegmentLabelActive: {
+    color: "#f8fafc"
+  },
+  helperText: {
+    fontSize: typography.bodySmall,
+    color: colors.textSecondary,
+    lineHeight: 18
   },
   button: {
     marginTop: 8,
-    borderRadius: 10,
-    backgroundColor: "#0f172a",
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
     paddingVertical: 12,
     paddingHorizontal: 14,
     alignItems: "center"
   },
   secondaryButton: {
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "#0f172a",
+    borderColor: colors.accent,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    alignItems: "center"
+    alignItems: "center",
+    backgroundColor: colors.surface
   },
   secondaryButtonLabel: {
-    color: "#0f172a",
+    color: colors.accent,
     fontWeight: "600"
   },
   buttonDisabled: {
@@ -180,6 +529,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 14,
-    color: "#b91c1c"
+    color: colors.error
   }
 });
