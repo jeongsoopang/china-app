@@ -1,0 +1,1 @@
+../../../../../../../../node_modules/.pnpm/expo-modules-core@2.5.0/node_modules/expo-modules-core/ios/Interfaces/FaceDetector/EXFaceDetectorManagerProviderInterface.h

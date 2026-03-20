@@ -1,0 +1,1 @@
+../../../../../../../node_modules/.pnpm/expo-constants@55.0.7_expo@53.0.27_@babel+core@7.29.0_@expo+metro-runtime@5.0.5_react-native@_xp7w6mhv57wotd4gjwdrkxjfpq/node_modules/expo-constants/ios/EXConstantsInstallationIdProvider.h

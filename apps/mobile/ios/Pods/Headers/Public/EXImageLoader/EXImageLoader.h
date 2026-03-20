@@ -1,0 +1,1 @@
+../../../../../../../node_modules/.pnpm/expo-image-loader@5.1.0_expo@53.0.27_@babel+core@7.29.0_@expo+metro-runtime@5.0.5_react-nativ_xqq4f46jnfzsrcfxyhzupnqary/node_modules/expo-image-loader/ios/EXImageLoader/EXImageLoader.h

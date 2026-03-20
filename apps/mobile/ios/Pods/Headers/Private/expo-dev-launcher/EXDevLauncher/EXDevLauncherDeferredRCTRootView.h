@@ -1,0 +1,1 @@
+../../../../../../../../node_modules/.pnpm/expo-dev-launcher@5.1.16_expo@53.0.27_@babel+core@7.29.0_@expo+metro-runtime@5.0.5_react-nati_tyhvyhmmhcyguhifmqqplqaag4/node_modules/expo-dev-launcher/ios/ReactDelegateHandler/EXDevLauncherDeferredRCTRootView.h

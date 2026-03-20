@@ -1,0 +1,6 @@
+module Pods_ForYou {
+  umbrella header "Pods-ForYou-umbrella.h"
+
+  export *
+  module * { export * }
+}

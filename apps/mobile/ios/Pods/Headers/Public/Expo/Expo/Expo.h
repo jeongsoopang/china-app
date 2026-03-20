@@ -1,0 +1,1 @@
+../../../../../../../../node_modules/.pnpm/expo@53.0.27_@babel+core@7.29.0_@expo+metro-runtime@5.0.5_react-native@0.79.6_@babel+core@7.2_2yl7c4sbztkgjbkcdme6hk22qy/node_modules/expo/ios/Expo.h
