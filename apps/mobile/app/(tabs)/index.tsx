@@ -17,6 +17,8 @@ import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
 type RecentPost = {
   id: number;
+  authorId: string;
+  authorName: string | null;
   title: string;
   body: string;
   abstract: string | null;
@@ -316,6 +318,7 @@ export default function HomeScreen() {
         .select(
           `
           id,
+          author_id,
           title,
           body,
           abstract,
@@ -339,6 +342,7 @@ export default function HomeScreen() {
         .select(
           `
           id,
+          author_id,
           title,
           body,
           like_count,
@@ -376,6 +380,7 @@ export default function HomeScreen() {
 
     const rows = (data ?? []) as Array<{
       id: number;
+      author_id: string;
       title: string;
       body: string;
       abstract?: string | null;
@@ -391,6 +396,8 @@ export default function HomeScreen() {
 
     const mapped = rows.map((row) => ({
       id: row.id,
+      authorId: row.author_id,
+      authorName: null,
       title: row.title,
       body: row.body,
       abstract: typeof row.abstract === "string" ? row.abstract : null,
@@ -414,6 +421,32 @@ export default function HomeScreen() {
 
     setRecentPosts(mapped);
     setIsLoadingRecentPosts(false);
+
+    const authorIds = Array.from(new Set(mapped.map((row) => row.authorId).filter(Boolean)));
+    if (authorIds.length === 0) {
+      return;
+    }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("id, display_name")
+      .in("id", authorIds);
+
+    if (profileError) {
+      return;
+    }
+
+    const displayNameMap = new Map<string, string | null>();
+    (profileData ?? []).forEach((profile) => {
+      displayNameMap.set(profile.id, profile.display_name ?? null);
+    });
+
+    setRecentPosts((current) =>
+      current.map((post) => ({
+        ...post,
+        authorName: displayNameMap.get(post.authorId) ?? post.authorName
+      }))
+    );
   }, []);
 
   useEffect(() => {
@@ -706,6 +739,24 @@ function PostCard({ post, rank }: { post: RecentPost; rank?: number }) {
             <Text style={styles.postMeta}>{post.commentCount}</Text>
           </View>
         </View>
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            router.push({
+              pathname: "/users/[userId]",
+              params: {
+                userId: post.authorId,
+                returnTo: "/(tabs)"
+              }
+            });
+          }}
+          style={styles.authorIdentityButton}
+        >
+          <Ionicons name="person-circle-outline" size={14} color={colors.textSecondary} />
+          <Text style={styles.authorIdentityLabel} numberOfLines={1}>
+            {post.authorName ?? "Unknown"}
+          </Text>
+        </Pressable>
         {previewText ? (
           <Text style={styles.postPreview} numberOfLines={3}>
             {previewText}
@@ -767,7 +818,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
     paddingTop: 0,
-    gap: spacing.md,
+    gap: spacing.sm,
     backgroundColor: colors.background
   },
   brandBlock: {
@@ -851,6 +902,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4
   },
   sectionCard: {
+    marginTop: -spacing.sm,
     borderRadius: radius.lg,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -869,7 +921,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     paddingHorizontal: 0,
     paddingTop: 0,
-    paddingBottom: spacing.sm
+    paddingBottom: spacing.xs
   },
   sectionHeaderRow: {
     flexDirection: "row",
@@ -891,7 +943,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-start",
-    gap: spacing.xs
+    gap: spacing.xs,
+    marginTop: 0
   },
   modeToggleWrap: {
     flexDirection: "row",
@@ -932,7 +985,8 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     backgroundColor: "#edf3fb",
     borderWidth: 1,
-    borderColor: "#dbe5f3"
+    borderColor: "#dbe5f3",
+    marginBottom: 2
   },
   boardImage: {
     width: "100%",
@@ -1109,6 +1163,24 @@ const styles = StyleSheet.create({
     fontSize: typography.bodySmall,
     lineHeight: 19,
     color: colors.textSecondary
+  },
+  authorIdentityButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "rgba(255,255,255,0.88)",
+    paddingVertical: 3,
+    paddingHorizontal: 8
+  },
+  authorIdentityLabel: {
+    maxWidth: 140,
+    fontSize: typography.caption,
+    color: colors.textSecondary,
+    fontWeight: "600"
   },
   metaText: {
     fontSize: typography.bodySmall,

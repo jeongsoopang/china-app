@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   CommentTree,
@@ -7,6 +8,7 @@ import {
   ReportComposer
 } from "../../../src/features/discussion/discussion.components";
 import { useDiscussionThread } from "../../../src/features/discussion/use-discussion-thread";
+import { supabase } from "../../../src/lib/supabase/client";
 import { colors, radius, spacing, typography } from "../../../src/ui/theme";
 
 export default function PostDetailScreen() {
@@ -19,6 +21,42 @@ export default function PostDetailScreen() {
   const resolvedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
   const thread = useDiscussionThread({ mode: "post", routeId: postId });
   const bodyBlocks = parsePostBody(thread.state.post?.body ?? "");
+  const [authorName, setAuthorName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAuthorName() {
+      const authorId = thread.state.post?.author_id;
+      if (!authorId) {
+        setAuthorName(null);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .select("display_name")
+        .eq("id", authorId)
+        .maybeSingle();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (error) {
+        setAuthorName(null);
+        return;
+      }
+
+      setAuthorName(typeof data?.display_name === "string" ? data.display_name : null);
+    }
+
+    void loadAuthorName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [thread.state.post?.author_id]);
 
   function onGoBack() {
     if (resolvedReturnTo) {
@@ -63,6 +101,23 @@ export default function PostDetailScreen() {
       {thread.state.post ? (
         <View style={styles.postCard}>
           <Text style={styles.postTitle}>{thread.state.post.title}</Text>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: "/users/[userId]",
+                params: {
+                  userId: thread.state.post?.author_id ?? "",
+                  returnTo: resolvedReturnTo ?? `/posts/${postId}`
+                }
+              })
+            }
+            style={styles.authorIdentityButton}
+          >
+            <Ionicons name="person-circle-outline" size={16} color={colors.textSecondary} />
+            <Text style={styles.authorIdentityLabel} numberOfLines={1}>
+              {authorName ?? "Unknown"}
+            </Text>
+          </Pressable>
 
           <View style={styles.bodyBlocks}>
             {bodyBlocks.map((block, index) =>
@@ -287,6 +342,24 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
     color: colors.textPrimary
+  },
+  authorIdentityButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 10,
+    paddingVertical: 4
+  },
+  authorIdentityLabel: {
+    maxWidth: 180,
+    fontSize: typography.bodySmall,
+    fontWeight: "600",
+    color: colors.textSecondary
   },
   postBody: {
     fontSize: typography.body,

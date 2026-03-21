@@ -280,6 +280,15 @@ export default function TabsLayout() {
           headerLeft: () => <MyPostsBackHeaderButton />
         }}
       />
+
+      <Tabs.Screen
+        name="users/[userId]"
+        options={{
+          href: null,
+          title: "Profile",
+          headerLeft: () => <DetailBackHeaderButton />
+        }}
+      />
     </Tabs>
   );
 }

@@ -747,6 +747,18 @@ export default function UniversityDetailScreen() {
   }, [isSjtuCampusLanding, posts]);
 
   const universityReturnTo = currentUniversityReturnTo;
+  const onPressAuthorIdentity = useCallback(
+    (authorId: string) => {
+      router.push({
+        pathname: "/users/[userId]",
+        params: {
+          userId: authorId,
+          returnTo: currentUniversityReturnTo
+        }
+      });
+    },
+    [currentUniversityReturnTo, router]
+  );
 
   const studyDegreeCounts = useMemo(() => {
     return posts.reduce(
@@ -959,14 +971,20 @@ export default function UniversityDetailScreen() {
                       </Text>
                     ) : null}
                     <Text style={styles.postMeta}>{createdLabel}</Text>
-                    <View style={styles.postAuthorRow}>
+                    <Pressable
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        onPressAuthorIdentity(post.authorId);
+                      }}
+                      style={styles.postAuthorButton}
+                    >
                       {universityLogoSource ? (
                         <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
                       ) : null}
                       <Text style={styles.postAuthorName} numberOfLines={1}>
                         {post.authorName ?? "Unknown"}
                       </Text>
-                    </View>
+                    </Pressable>
                     <View style={styles.postEngagementRow}>
                       <View style={styles.postEngagementItem}>
                         <Ionicons name="heart-outline" size={14} color={colors.textMuted} />
@@ -1199,14 +1217,20 @@ export default function UniversityDetailScreen() {
                         </Text>
                       ) : null}
                       <Text style={styles.postMeta}>{createdLabel}</Text>
-                      <View style={styles.postAuthorRow}>
+                      <Pressable
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          onPressAuthorIdentity(post.authorId);
+                        }}
+                        style={styles.postAuthorButton}
+                      >
                         {universityLogoSource ? (
                           <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
                         ) : null}
                         <Text style={styles.postAuthorName} numberOfLines={1}>
                           {post.authorName ?? "Unknown"}
                         </Text>
-                      </View>
+                      </Pressable>
                       <View style={styles.postEngagementRow}>
                         <View style={styles.postEngagementItem}>
                           <Ionicons name="heart-outline" size={14} color={colors.textMuted} />
@@ -1335,14 +1359,20 @@ export default function UniversityDetailScreen() {
                         </Text>
                       ) : null}
                       <Text style={styles.postMeta}>{createdLabel}</Text>
-                      <View style={styles.postAuthorRow}>
+                      <Pressable
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          onPressAuthorIdentity(post.authorId);
+                        }}
+                        style={styles.postAuthorButton}
+                      >
                         {universityLogoSource ? (
                           <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
                         ) : null}
                         <Text style={styles.postAuthorName} numberOfLines={1}>
                           {post.authorName ?? "Unknown"}
                         </Text>
-                      </View>
+                      </Pressable>
                       <View style={styles.postEngagementRow}>
                         <View style={styles.postEngagementItem}>
                           <Ionicons name="heart-outline" size={14} color={colors.textMuted} />
@@ -1398,14 +1428,20 @@ export default function UniversityDetailScreen() {
                   </Text>
                 ) : null}
                 <Text style={styles.postMeta}>{createdLabel}</Text>
-                <View style={styles.postAuthorRow}>
+                <Pressable
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onPressAuthorIdentity(post.authorId);
+                  }}
+                  style={styles.postAuthorButton}
+                >
                   {universityLogoSource ? (
                     <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
                   ) : null}
                   <Text style={styles.postAuthorName} numberOfLines={1}>
                     {post.authorName ?? "Unknown"}
                   </Text>
-                </View>
+                </Pressable>
                 <View style={styles.postEngagementRow}>
                   <View style={styles.postEngagementItem}>
                     <Ionicons name="heart-outline" size={14} color={colors.textMuted} />
@@ -1690,6 +1726,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6
+  },
+  postAuthorButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    paddingHorizontal: 8,
+    paddingVertical: 3
   },
   postAuthorLogo: {
     width: 16,

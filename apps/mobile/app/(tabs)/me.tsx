@@ -476,6 +476,7 @@ export default function MeScreen() {
   const [myPosts, setMyPosts] = useState<MyPostPreview[]>([]);
   const [isLoadingMyPosts, setIsLoadingMyPosts] = useState(false);
   const [myPostsError, setMyPostsError] = useState<string | null>(null);
+  const [followerCount, setFollowerCount] = useState<number>(0);
   const [bronzeQuota, setBronzeQuota] = useState<BronzeQuota | null>(null);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -484,6 +485,8 @@ export default function MeScreen() {
   const [pendingSettingsModal, setPendingSettingsModal] = useState<"myInfo" | "profile" | null>(null);
   const [profileModalStep, setProfileModalStep] = useState<"form" | "crop">("form");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [isPrivateProfile, setIsPrivateProfile] = useState(false);
+  const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [displayNameOverride, setDisplayNameOverride] = useState<string | null>(null);
   const [avatarUrlOverride, setAvatarUrlOverride] = useState<string | null>(null);
@@ -541,6 +544,11 @@ export default function MeScreen() {
   const verifiedSchoolEmail = auth.user?.profile?.verified_school_email ?? null;
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
   const isSchoolVerified = Boolean(verifiedSchoolEmail && verifiedUniversityId);
+  const metadataPrivateProfile = auth.user?.authUser.user_metadata?.private_profile === true;
+  const profilePrivacyFromSession =
+    ((auth.user?.profile as (Record<string, unknown> & { is_private_profile?: unknown }) | null)
+      ?.is_private_profile === true) ||
+    metadataPrivateProfile;
 
   const effectiveTier = useMemo(() => {
     if (tier) {
@@ -644,6 +652,10 @@ export default function MeScreen() {
   }, [displayName]);
 
   useEffect(() => {
+    setIsPrivateProfile(profilePrivacyFromSession);
+  }, [profilePrivacyFromSession]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadVerifiedUniversity() {
@@ -740,6 +752,31 @@ export default function MeScreen() {
     setIsLoadingMyPosts(false);
   }, [authUserId]);
 
+  const loadFollowerCount = useCallback(async () => {
+    if (!authUserId) {
+      setFollowerCount(0);
+      return;
+    }
+
+    const tableClient = supabase as unknown as {
+      from: (table: string) => {
+        select: (query: string, options?: Record<string, unknown>) => any;
+      };
+    };
+
+    const { count, error } = await tableClient
+      .from("follows")
+      .select("follower_id", { count: "exact", head: true })
+      .eq("following_id", authUserId);
+
+    if (error) {
+      setFollowerCount(0);
+      return;
+    }
+
+    setFollowerCount(typeof count === "number" ? count : 0);
+  }, [authUserId]);
+
   useEffect(() => {
     void loadMyPosts();
   }, [loadMyPosts]);
@@ -766,8 +803,13 @@ export default function MeScreen() {
     useCallback(() => {
       void loadMyPosts();
       void loadBronzeQuota();
-    }, [loadBronzeQuota, loadMyPosts])
+      void loadFollowerCount();
+    }, [loadBronzeQuota, loadFollowerCount, loadMyPosts])
   );
+
+  useEffect(() => {
+    void loadFollowerCount();
+  }, [loadFollowerCount]);
 
   useEffect(() => {
     if (!authUserId || !isBronzeTier) {
@@ -921,6 +963,52 @@ export default function MeScreen() {
         }
       }
 
+      const tableClient = supabase as unknown as {
+        from: (table: string) => {
+          select: (query: string) => {
+            eq: (column: string, value: string) => {
+              maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+            };
+          };
+          update: (payload: Record<string, unknown>) => {
+            eq: (column: string, value: string) => Promise<{ error: { message: string } | null }>;
+          };
+        };
+      };
+
+      const { data: profileRow } = await tableClient
+        .from("user_profiles")
+        .select("*")
+        .eq("id", auth.user.authUser.id)
+        .maybeSingle();
+
+      if (profileRow) {
+        const profileUpdatePayload: Record<string, unknown> = {};
+        if ("display_name" in profileRow) {
+          profileUpdatePayload.display_name = normalizedNextName || sessionDisplayName || "-";
+        }
+        if ("avatar_url" in profileRow) {
+          profileUpdatePayload.avatar_url = nextAvatarUrl ?? null;
+        }
+        if ("profile_background_url" in profileRow) {
+          profileUpdatePayload.profile_background_url = nextProfileBackgroundUrl ?? null;
+        }
+        if ("background_url" in profileRow) {
+          profileUpdatePayload.background_url = nextProfileBackgroundUrl ?? null;
+        }
+
+        if (Object.keys(profileUpdatePayload).length > 0) {
+          const { error: profileUpdateError } = await tableClient
+            .from("user_profiles")
+            .update(profileUpdatePayload)
+            .eq("id", auth.user.authUser.id);
+
+          if (profileUpdateError) {
+            throw new Error(profileUpdateError.message);
+          }
+        }
+      }
+
       setDisplayNameOverride(nextName || "-");
       setAvatarUrlOverride(nextAvatarUrl);
       setProfileBackgroundUrlOverride(nextProfileBackgroundUrl);
@@ -933,6 +1021,67 @@ export default function MeScreen() {
       setLocalError(mapAuthError(error));
     } finally {
       setIsSavingProfile(false);
+    }
+  }
+
+  async function saveProfilePrivacy(nextValue: boolean) {
+    if (!authUserId || isSavingPrivacy) {
+      return;
+    }
+
+    setLocalError(null);
+    setIsSavingPrivacy(true);
+    setIsPrivateProfile(nextValue);
+
+    try {
+      const tableClient = supabase as unknown as {
+        from: (table: string) => {
+          select: (query: string) => {
+            eq: (column: string, value: string) => {
+              maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+            };
+          };
+          update: (payload: Record<string, unknown>) => {
+            eq: (column: string, value: string) => Promise<{ error: { message: string } | null }>;
+          };
+        };
+      };
+
+      const { data: profileRow } = await tableClient
+        .from("user_profiles")
+        .select("*")
+        .eq("id", authUserId)
+        .maybeSingle();
+
+      const privacyColumn = profileRow
+        ? (["is_private_profile", "is_private", "private_profile"].find((key) => key in profileRow) ?? null)
+        : null;
+
+      if (privacyColumn) {
+        const { error: profileError } = await tableClient
+          .from("user_profiles")
+          .update({ [privacyColumn]: nextValue })
+          .eq("id", authUserId);
+
+        if (profileError) {
+          throw new Error(profileError.message);
+        }
+      }
+
+      const metadataResult = await supabase.auth.updateUser({
+        data: {
+          private_profile: nextValue
+        }
+      });
+
+      if (metadataResult.error) {
+        throw metadataResult.error;
+      }
+    } catch (error) {
+      setIsPrivateProfile((current) => !current);
+      setLocalError(mapAuthError(error));
+    } finally {
+      setIsSavingPrivacy(false);
     }
   }
 
@@ -1159,25 +1308,27 @@ export default function MeScreen() {
                         resizeMode="contain"
                       />
                     ) : null}
-                    <Text style={styles.displayName}>{displayName}</Text>
+                    <Text style={styles.displayName} numberOfLines={1}>
+                      {displayName}
+                    </Text>
                   </View>
-                  <Text style={styles.emailText}>{email}</Text>
                 </View>
               </View>
             </View>
 
-            <View style={styles.profileSummaryRow}>
+            <View style={styles.profileSummaryPrimaryRow}>
               <TierSummaryCard value={effectiveTier} />
-              {isBronzeTier ? (
-                <BronzeTokenCard
-                  remainingQuestions={bronzeQuota?.remainingQuestions ?? 1}
-                  remainingComments={bronzeQuota?.remainingComments ?? 5}
-                />
-              ) : (
-                <SummaryCard label="Points" value={String(points)} />
-              )}
-              <SummaryCard label="School" value={schoolLabel} wide />
+              <SummaryCard label="Points" value={String(points)} />
+              <SummaryCard label="School" value={schoolLabel} />
+              <SummaryCard label="Followers" value={String(followerCount)} />
             </View>
+            {isBronzeTier ? (
+              <View style={styles.bronzeTokenInline}>
+                <Text style={styles.bronzeTokenInlineText}>
+                  Token 질문 {bronzeQuota?.remainingQuestions ?? 1} · 답글 {bronzeQuota?.remainingComments ?? 5}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -1331,6 +1482,23 @@ export default function MeScreen() {
                 <Text style={styles.settingsRowSubtitle}>알림을 놓치지 않도록 알림을 허용하세요</Text>
               </View>
               <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} />
+            </View>
+
+            <View style={styles.settingsRow}>
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="lock-closed-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsRowTitle}>비공개 프로필</Text>
+                <Text style={styles.settingsRowSubtitle}>비공개 시 팔로워만 내 프로필을 볼 수 있습니다.</Text>
+              </View>
+              <Switch
+                value={isPrivateProfile}
+                onValueChange={(value) => {
+                  void saveProfilePrivacy(value);
+                }}
+                disabled={isSavingPrivacy}
+              />
             </View>
 
             <Pressable style={styles.settingsRow} onPress={openFeedbackEmail}>
@@ -1704,22 +1872,22 @@ const styles = StyleSheet.create({
     top: spacing.md,
     right: spacing.md,
     zIndex: 2,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surface,
+    backgroundColor: "rgba(255,255,255,0.54)",
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: "rgba(255,255,255,0.64)"
   },
   profileOverlayContent: {
     position: "absolute",
     bottom: "14%",
     left: "8%",
-    width: "60%",
-    minWidth: 198,
-    maxWidth: 236,
+    width: "56%",
+    minWidth: 182,
+    maxWidth: 220,
     paddingHorizontal: 0,
     paddingVertical: 0,
     gap: 6
@@ -1751,17 +1919,19 @@ const styles = StyleSheet.create({
     color: colors.accent
   },
   profileHeroText: {
-    flex: 1,
+    flexShrink: 1,
+    alignSelf: "flex-start",
     gap: 0
   },
   identityTextCard: {
     alignSelf: "flex-start",
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.58)",
+    maxWidth: 176,
+    backgroundColor: "rgba(255,255,255,0.80)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.65)",
+    borderColor: "rgba(255,255,255,0.92)",
     paddingHorizontal: 8,
-    paddingVertical: 6
+    paddingVertical: 5
   },
   displayNameRow: {
     flexDirection: "row",
@@ -1777,19 +1947,28 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.textPrimary
   },
-  emailText: {
-    marginTop: 2,
-    fontSize: 11,
-    color: colors.textSecondary
-  },
-  profileSummaryRow: {
+  profileSummaryPrimaryRow: {
     flexDirection: "row",
+    flexWrap: "nowrap",
     gap: 4,
     alignSelf: "flex-start",
     marginTop: 3
   },
+  profileSummarySecondaryRow: {
+    flexDirection: "row",
+    gap: 4,
+    alignSelf: "flex-start"
+  },
+  bronzeTokenInline: {
+    marginTop: 1
+  },
+  bronzeTokenInlineText: {
+    fontSize: 10,
+    color: colors.textMuted,
+    fontWeight: "600"
+  },
   summaryPill: {
-    width: 56,
+    width: 50,
     borderRadius: 10,
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
@@ -1803,7 +1982,7 @@ const styles = StyleSheet.create({
     width: 76
   },
   summaryMiniCard: {
-    width: 56,
+    width: 50,
     borderRadius: 10,
     paddingHorizontal: 4,
     paddingVertical: 4,
@@ -1820,6 +1999,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: colors.textPrimary
+  },
+  followActionCard: {
+    minWidth: 96,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 4
+  },
+  followActionCardDisabled: {
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted
+  },
+  followActionLabelDisabled: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: colors.textMuted
   },
   infoCard: {
     borderRadius: radius.lg,
