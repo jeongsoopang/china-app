@@ -245,12 +245,23 @@ export default function UserProfileScreen() {
         "cover_image_url"
       ]),
       verifiedUniversityId:
-        typeof profileRow.verified_university_id === "string"
-          ? profileRow.verified_university_id
+        typeof profileRow.verified_university_id === "string" ||
+        typeof profileRow.verified_university_id === "number"
+          ? String(profileRow.verified_university_id)
           : null,
       isPrivateProfile: isPrivateFromRow === true,
-      points: typeof profileRow.points === "number" ? profileRow.points : 0,
-      tier: typeof profileRow.tier === "string" ? profileRow.tier : null
+      points:
+        typeof profileRow.points === "number"
+          ? profileRow.points
+          : typeof profileRow.points_balance === "number"
+            ? profileRow.points_balance
+            : 0,
+      tier:
+        typeof profileRow.tier === "string"
+          ? profileRow.tier
+          : typeof profileRow.role === "string"
+            ? profileRow.role
+            : null
     };
 
     setProfile(mappedProfile);
@@ -486,7 +497,6 @@ export default function UserProfileScreen() {
 
             <View style={styles.profileSummaryPrimaryRow}>
               <TierSummaryCard value={profile.tier ?? "-"} />
-              <SummaryCard label="Points" value={String(profile.points)} />
               <SummaryCard
                 label="School"
                 value={verifiedUniversity?.shortName ?? verifiedUniversity?.name ?? "-"}
