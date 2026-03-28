@@ -5,12 +5,14 @@ import {
   Image,
   type ImageSourcePropType,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View
 } from "react-native";
 import { supabase } from "../../../../../src/lib/supabase/client";
+import { TierMarker, resolveTierMarkerValue } from "../../../../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../../../../src/ui/theme";
 
 type UniversityRow = {
@@ -24,28 +26,20 @@ type UniversityPost = {
   id: number;
   authorId: string;
   authorName: string | null;
+  authorTier: string | null;
   title: string;
   body: string;
   abstract: string | null;
   thumbnailImageUrl: string | null;
   likeCount: number;
   commentCount: number;
+  viewCount: number;
   createdAt: string;
   category: { slug: string | null } | null;
   images: { imageUrl: string; sortOrder: number | null }[];
 };
 
-type LogoKey = "sjtu" | "ecnu" | "sisu" | "tongji" | "fudan" | "sufe";
 type DegreeKey = "bachelor" | "master" | "phd";
-
-const LOGO_ASSETS: Record<LogoKey, ImageSourcePropType> = {
-  sjtu: require("../../../../../assets/home/logos/sjtu.png"),
-  ecnu: require("../../../../../assets/home/logos/ecnu.png"),
-  sisu: require("../../../../../assets/home/logos/sisu.png"),
-  tongji: require("../../../../../assets/home/logos/tongji.png"),
-  fudan: require("../../../../../assets/home/logos/fudan.png"),
-  sufe: require("../../../../../assets/home/logos/sufe.png")
-};
 
 const DEGREE_CONFIG: Record<
   DegreeKey,
@@ -135,20 +129,6 @@ export default function UniversityStudyDegreeScreen() {
   }, [resolvedDegree, resolvedReturnTo, resolvedUniversityId]);
 
   const degreeConfig = DEGREE_CONFIG[resolvedDegree];
-
-  const universityLogoSource = useMemo<ImageSourcePropType | null>(() => {
-    const shortNameKey = university?.shortName?.trim().toLowerCase() as LogoKey | undefined;
-    const slugKey = university?.slug?.trim().toLowerCase() as LogoKey | undefined;
-
-    if (shortNameKey && shortNameKey in LOGO_ASSETS) {
-      return LOGO_ASSETS[shortNameKey];
-    }
-    if (slugKey && slugKey in LOGO_ASSETS) {
-      return LOGO_ASSETS[slugKey];
-    }
-
-    return null;
-  }, [university?.shortName, university?.slug]);
 
   const onGoBack = useCallback(() => {
     if (resolvedReturnTo) {
@@ -277,6 +257,7 @@ export default function UniversityStudyDegreeScreen() {
           degree,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections!inner ( code ),
           categories ( slug ),
@@ -302,6 +283,7 @@ export default function UniversityStudyDegreeScreen() {
           degree,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections!inner ( code ),
           categories ( slug ),
@@ -345,6 +327,7 @@ export default function UniversityStudyDegreeScreen() {
       degree?: string | null;
       like_count: number | null;
       comment_count: number | null;
+      view_count: number | null;
       created_at: string;
       categories: { slug: string | null } | null;
       post_images: Array<{ image_url: string; sort_order: number | null }> | null;
@@ -354,6 +337,7 @@ export default function UniversityStudyDegreeScreen() {
       id: row.id,
       authorId: row.author_id,
       authorName: null,
+      authorTier: null,
       title: row.title,
       body: row.body,
       abstract: typeof row.abstract === "string" ? row.abstract : null,
@@ -361,6 +345,7 @@ export default function UniversityStudyDegreeScreen() {
         typeof row.thumbnail_image_url === "string" ? row.thumbnail_image_url : null,
       likeCount: row.like_count ?? 0,
       commentCount: row.comment_count ?? 0,
+      viewCount: row.view_count ?? 0,
       createdAt: row.created_at,
       category: row.categories ? { slug: row.categories.slug ?? null } : null,
       images: ((row.post_images ?? []) as Array<{ image_url: string; sort_order: number | null }>).map(
@@ -373,12 +358,28 @@ export default function UniversityStudyDegreeScreen() {
 
     const authorIds = Array.from(new Set(mapped.map((row) => row.authorId)));
     const displayNameMap = new Map<string, string | null>();
+    const tierMap = new Map<string, string | null>();
 
     if (authorIds.length > 0) {
-      const { data: profileData, error: profileError } = await supabase
+      const withTierProfilesResult = await supabase
         .from("user_profiles")
-        .select("id, display_name")
+        .select("id, display_name, tier, role")
         .in("id", authorIds);
+      let profileData = (withTierProfilesResult.data ?? null) as
+        | Array<{ id: string; display_name?: string | null; tier?: string | null; role?: string | null }>
+        | null;
+      let profileError = withTierProfilesResult.error;
+
+      if (profileError && /column/i.test(profileError.message) && /tier/i.test(profileError.message)) {
+        const withoutTierProfilesResult = await supabase
+          .from("user_profiles")
+          .select("id, display_name, role")
+          .in("id", authorIds);
+        profileData = (withoutTierProfilesResult.data ?? null) as
+          | Array<{ id: string; display_name?: string | null; tier?: string | null; role?: string | null }>
+          | null;
+        profileError = withoutTierProfilesResult.error;
+      }
 
       if (profileError) {
         setErrorMessage(profileError.message);
@@ -389,13 +390,15 @@ export default function UniversityStudyDegreeScreen() {
 
       (profileData ?? []).forEach((profile) => {
         displayNameMap.set(profile.id, profile.display_name ?? null);
+        tierMap.set(profile.id, resolveTierMarkerValue(profile.tier, profile.role));
       });
     }
 
     setPosts(
       mapped.map((row) => ({
         ...row,
-        authorName: displayNameMap.get(row.authorId) ?? null
+        authorName: displayNameMap.get(row.authorId) ?? null,
+        authorTier: tierMap.get(row.authorId) ?? null
       }))
     );
     setIsLoading(false);
@@ -416,7 +419,8 @@ export default function UniversityStudyDegreeScreen() {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.screenHeaderRow}>
         <Pressable onPress={onGoBack} style={styles.backButton}>
           <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
@@ -542,9 +546,7 @@ export default function UniversityStudyDegreeScreen() {
                           ) : null}
                           <Text style={styles.postMeta}>{createdLabel}</Text>
                           <View style={styles.postAuthorRow}>
-                            {universityLogoSource ? (
-                              <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
-                            ) : null}
+                            <TierMarker value={post.authorTier} size={16} />
                             <Text style={styles.postAuthorName} numberOfLines={1}>
                               {post.authorName ?? "Unknown"}
                             </Text>
@@ -558,6 +560,10 @@ export default function UniversityStudyDegreeScreen() {
                               <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
                               <Text style={styles.postMeta}>{post.commentCount}</Text>
                             </View>
+                            <View style={styles.postEngagementItem}>
+                              <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+                              <Text style={styles.postMeta}>Views {post.viewCount}</Text>
+                            </View>
                           </View>
                         </View>
                       </Pressable>
@@ -569,7 +575,8 @@ export default function UniversityStudyDegreeScreen() {
           </View>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -619,6 +626,10 @@ function getThumbnailUrl(
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background
+  },
   container: {
     padding: spacing.lg,
     gap: spacing.md,
@@ -787,10 +798,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginTop: 2
-  },
-  postAuthorLogo: {
-    width: 16,
-    height: 16
   },
   postAuthorName: {
     fontSize: typography.caption,

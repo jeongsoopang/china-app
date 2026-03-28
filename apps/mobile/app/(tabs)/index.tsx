@@ -1,1193 +1,1000 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Image,
   type ImageSourcePropType,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthSession } from "../../src/features/auth/auth-session";
-import { supabase } from "../../src/lib/supabase/client";
+import {
+  DEFAULT_HOME_GUIDE_CONTENT,
+  fetchHomeGuideContent
+} from "../../src/features/home/home-guide.service";
+import {
+  fetchLatestHomePopupAnnouncement,
+  type AnnouncementDetail
+} from "../../src/features/notifications/notifications.service";
+import { CityHeroHeader } from "../../src/ui/city-hero-header";
 import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
-type RecentPost = {
-  id: number;
-  authorId: string;
-  authorName: string | null;
-  title: string;
-  body: string;
-  abstract: string | null;
-  thumbnailImageUrl: string | null;
-  likeCount: number;
-  commentCount: number;
-  createdAt: string;
-  section: { slug: string | null } | null;
-  category: { slug: string | null } | null;
-  university: { name: string | null; shortName: string | null } | null;
-  images: { imageUrl: string; sortOrder: number | null }[];
-};
-
-type UniversitySummary = {
-  name: string;
-  shortName: string | null;
-  slug: string;
-};
-
-type LogoKey = "sjtu" | "ecnu" | "sisu" | "tongji" | "fudan" | "sufe";
-
-type BoardMode = "day" | "mood" | "night" | "auto";
-type ResolvedBoardVariant = "day" | "mood" | "night";
-
-type BoardNodeKey =
-  | "sjtu-minhang"
-  | "ecnu-minhang"
-  | "sisu-songjiang"
-  | "sjtu-xuhui"
-  | "ecnu-putuo"
-  | "tongji"
-  | "sisu-hongkou"
-  | "fudan"
-  | "sufe";
-
-type BoardNode = {
-  key: BoardNodeKey;
-  slug: string;
-  logoKey: LogoKey;
-  shortLabel: string;
-  users: number;
-  labelSide: "left" | "right";
-  top: `${number}%`;
-  left: `${number}%`;
-  size: number;
-  zIndex?: number;
-};
-
-const BOARD_DAY_IMAGE = require("../../assets/home/base/shanghai-board-day.png");
-const BOARD_MOOD_IMAGE = require("../../assets/home/base/shanghai-board-mood.png");
-const BOARD_NIGHT_IMAGE = require("../../assets/home/base/shanghai-board-night.png");
+type LogoKey = "sjtu" | "fudan" | "tongji" | "sufe" | "sisu" | "ecnu";
+type ExploreCardKey = "event" | "universities" | "shanghai";
+type QuickActionKey = "my-school" | "campus-notice" | "my-posts";
 
 const LOGO_ASSETS: Record<LogoKey, ImageSourcePropType> = {
   sjtu: require("../../assets/home/logos/sjtu.png"),
-  ecnu: require("../../assets/home/logos/ecnu.png"),
-  sisu: require("../../assets/home/logos/sisu.png"),
-  tongji: require("../../assets/home/logos/tongji.png"),
   fudan: require("../../assets/home/logos/fudan.png"),
-  sufe: require("../../assets/home/logos/sufe.png")
+  tongji: require("../../assets/home/logos/tongji.png"),
+  sufe: require("../../assets/home/logos/sufe.png"),
+  sisu: require("../../assets/home/logos/sisu.png"),
+  ecnu: require("../../assets/home/logos/ecnu.png")
 };
 
-const BOARD_NODES: BoardNode[] = [
+const CARD_ASSETS: Record<ExploreCardKey, ImageSourcePropType> = {
+  event: require("../../assets/home/cards/event-hotspots-card.png"),
+  universities: require("../../assets/home/cards/universities-card.png"),
+  shanghai: require("../../assets/home/cards/shanghai-card.png")
+};
+
+const SCHOOL_LOGOS: Array<{ key: LogoKey; label: string }> = [
+  { key: "sjtu", label: "SJTU" },
+  { key: "fudan", label: "Fudan" },
+  { key: "tongji", label: "Tongji" },
+  { key: "sufe", label: "SUFE" },
+  { key: "sisu", label: "SISU" },
+  { key: "ecnu", label: "ECNU" }
+];
+
+const CARDS: Array<{ key: ExploreCardKey; title: string; subtitle: string; route: string }> = [
   {
-    key: "ecnu-putuo",
-    slug: "ecnu",
-    logoKey: "ecnu",
-    shortLabel: "ECNU PT",
-    users: 0,
-    labelSide: "right",
-    top: "10.8%",
-    left: "16.2%",
-    size: 18,
-    zIndex: 4
+    key: "event",
+    title: "Event 맛집",
+    subtitle: "City events and local highlights",
+    route: "/home/event-hotspots"
   },
   {
-    key: "sisu-hongkou",
-    slug: "sisu",
-    logoKey: "sisu",
-    shortLabel: "SISU HK",
-    users: 0,
-    labelSide: "right",
-    top: "31.4%",
-    left: "45.8%",
-    size: 18,
-    zIndex: 4
+    key: "universities",
+    title: "Universities",
+    subtitle: "Campus life across Shanghai",
+    route: "/home/universities"
   },
   {
-    key: "sisu-songjiang",
-    slug: "sisu",
-    logoKey: "sisu",
-    shortLabel: "SISU SG",
-    users: 0,
-    labelSide: "right",
-    top: "42.0%",
-    left: "28.0%",
-    size: 18,
-    zIndex: 4
-  },
-  {
-    key: "ecnu-minhang",
-    slug: "ecnu",
-    logoKey: "ecnu",
-    shortLabel: "ECNU MH",
-    users: 0,
-    labelSide: "left",
-    top: "46.6%",
-    left: "62.0%",
-    size: 18,
-    zIndex: 4
-  },
-  {
-    key: "fudan",
-    slug: "fudan",
-    logoKey: "fudan",
-    shortLabel: "Fudan",
-    users: 0,
-    labelSide: "right",
-    top: "61.4%",
-    left: "22.0%",
-    size: 18,
-    zIndex: 4
-  },
-  {
-    key: "tongji",
-    slug: "tongji",
-    logoKey: "tongji",
-    shortLabel: "Tongji",
-    users: 0,
-    labelSide: "left",
-    top: "65.0%",
-    left: "80.6%",
-    size: 18,
-    zIndex: 4
-  },
-  {
-    key: "sjtu-minhang",
-    slug: "sjtu",
-    logoKey: "sjtu",
-    shortLabel: "SJTU MH",
-    users: 0,
-    labelSide: "right",
-    top: "71.4%",
-    left: "42.8%",
-    size: 18,
-    zIndex: 5
-  },
-  {
-    key: "sufe",
-    slug: "sufe",
-    logoKey: "sufe",
-    shortLabel: "SUFE",
-    users: 0,
-    labelSide: "left",
-    top: "86.0%",
-    left: "80.2%",
-    size: 18,
-    zIndex: 4
-  },
-  {
-    key: "sjtu-xuhui",
-    slug: "sjtu",
-    logoKey: "sjtu",
-    shortLabel: "SJTU XH",
-    users: 0,
-    labelSide: "right",
-    top: "92.2%",
-    left: "56.8%",
-    size: 18,
-    zIndex: 4
+    key: "shanghai",
+    title: "Shanghai",
+    subtitle: "Food, place, and church",
+    route: "/home/shanghai"
   }
 ];
 
-function resolveBoardVariant(mode: BoardMode, date: Date): ResolvedBoardVariant {
-  if (mode === "day") {
-    return "day";
+const QUICK_ACTIONS: Array<{
+  key: QuickActionKey;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}> = [
+  { key: "my-school", label: "My School", icon: "school-outline" },
+  { key: "campus-notice", label: "Announcement", icon: "megaphone-outline" },
+  { key: "my-posts", label: "My Page", icon: "document-text-outline" }
+];
+
+const HOME_POPUP_HIDE_UNTIL_STORAGE_KEY = "@lucl/home_announcement_hide_until_v1";
+const HOME_POPUP_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY = "@lucl/home_guide_hide_until_v1";
+const HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY = "@lucl/home_guide_dismissed_forever_v1";
+const HOME_GUIDE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const HOME_GUIDE_IMAGE_URL =
+  "https://pdlgnrutisyenrcdetxm.supabase.co/storage/v1/object/public/home-guide/home-guide.png";
+
+function getAnnouncementVersionKey(announcement: AnnouncementDetail): string {
+  const version = announcement.updated_at ?? announcement.published_at ?? announcement.created_at ?? "";
+  return `${announcement.id}:${version}`;
+}
+
+async function readHomePopupHideUntilMap(): Promise<Record<string, number>> {
+  const raw = await AsyncStorage.getItem(HOME_POPUP_HIDE_UNTIL_STORAGE_KEY);
+  if (!raw) {
+    return {};
   }
 
-  if (mode === "mood") {
-    return "mood";
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const next: Record<string, number> = {};
+    Object.entries(parsed).forEach(([key, value]) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        next[key] = value;
+      }
+    });
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+async function readHomeGuideHideUntil(): Promise<number> {
+  const raw = await AsyncStorage.getItem(HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY);
+  if (!raw) {
+    return 0;
   }
 
-  if (mode === "night") {
-    return "night";
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return 0;
   }
 
-  const hour = date.getHours();
+  return parsed;
+}
 
-  if (hour >= 6 && hour < 16) {
-    return "day";
-  }
-
-  if (hour >= 16 && hour < 18) {
-    return "mood";
-  }
-
-  return "night";
+async function readHomeGuideDismissedForever(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY);
+  return raw === "true";
 }
 
 export default function HomeScreen() {
-  const router = useRouter();
   const auth = useAuthSession();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const cardScrollRef = useRef<ScrollView>(null);
+  const { width } = useWindowDimensions();
+  const quickActionsAnim = useRef(new Animated.Value(0)).current;
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [isGuideModalVisible, setIsGuideModalVisible] = useState(false);
+  const [isAnnouncementModalVisible, setIsAnnouncementModalVisible] = useState(false);
+  const [homeGuideContent, setHomeGuideContent] = useState(DEFAULT_HOME_GUIDE_CONTENT);
+  const [homeAnnouncement, setHomeAnnouncement] = useState<AnnouncementDetail | null>(null);
+  const [homePopupHideUntilMap, setHomePopupHideUntilMap] = useState<Record<string, number>>({});
+  const [isHomeEntryDataReady, setIsHomeEntryDataReady] = useState(false);
+  const [isGuideDismissedForSession, setIsGuideDismissedForSession] = useState(false);
+  const [homeGuideHideUntil, setHomeGuideHideUntil] = useState(0);
+  const [isHomeGuideDismissedForever, setIsHomeGuideDismissedForever] = useState(false);
+  const [sessionDismissedAnnouncementKey, setSessionDismissedAnnouncementKey] = useState<string | null>(null);
 
-  const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
-  const [recentPostsError, setRecentPostsError] = useState<string | null>(null);
-  const [isLoadingRecentPosts, setIsLoadingRecentPosts] = useState<boolean>(true);
-  const [verifiedUniversitySlug, setVerifiedUniversitySlug] = useState<string | null>(null);
-  const [verifiedUniversity, setVerifiedUniversity] = useState<UniversitySummary | null>(null);
-  const [isLoadingUniversity, setIsLoadingUniversity] = useState<boolean>(false);
-  const [universityError, setUniversityError] = useState<string | null>(null);
-
-  const [boardMode, setBoardMode] = useState<BoardMode>("auto");
-  const [now, setNow] = useState<Date>(() => new Date());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 60 * 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  const verifiedUniversityId = useMemo(() => {
-    return auth.user?.profile?.verified_university_id ?? null;
-  }, [auth.user?.profile?.verified_university_id]);
-
-  const homeUserName = useMemo(() => {
-    return (
-      auth.user?.profile?.display_name ??
-      (typeof auth.user?.authUser.user_metadata?.display_name === "string"
-        ? auth.user.authUser.user_metadata.display_name
-        : null) ??
-      (auth.user?.authUser.email ? auth.user.authUser.email.split("@")[0] : null) ??
-      "Guest"
-    );
-  }, [
-    auth.user?.profile?.display_name,
-    auth.user?.authUser.user_metadata?.display_name,
-    auth.user?.authUser.email
-  ]);
-
-  const verifiedUniversityLogoSource = useMemo<ImageSourcePropType | null>(() => {
-    if (!verifiedUniversitySlug) {
-      return null;
-    }
-
-    if (verifiedUniversitySlug === "sjtu") {
-      return LOGO_ASSETS.sjtu;
-    }
-    if (verifiedUniversitySlug === "ecnu") {
-      return LOGO_ASSETS.ecnu;
-    }
-    if (verifiedUniversitySlug === "sisu") {
-      return LOGO_ASSETS.sisu;
-    }
-    if (verifiedUniversitySlug === "tongji") {
-      return LOGO_ASSETS.tongji;
-    }
-    if (verifiedUniversitySlug === "fudan") {
-      return LOGO_ASSETS.fudan;
-    }
-    if (verifiedUniversitySlug === "sufe") {
-      return LOGO_ASSETS.sufe;
-    }
-
-    return null;
-  }, [verifiedUniversitySlug]);
-
-  const boardAspectRatio = 1536 / 2048;
-  const availableBoardWidth = Math.max(windowWidth - spacing.lg * 2, 300);
-  const maxBoardWidth = availableBoardWidth;
-  const maxBoardHeight = Math.min(windowHeight * 0.84, 780);
-  const boardWidth = Math.min(maxBoardWidth, maxBoardHeight * boardAspectRatio);
-  const boardHeight = boardWidth / boardAspectRatio;
-
-  const resolvedBoardVariant = useMemo<ResolvedBoardVariant>(() => {
-    return resolveBoardVariant(boardMode, now);
-  }, [boardMode, now]);
-
-  const boardImageSource = useMemo(() => {
-    if (resolvedBoardVariant === "day") {
-      return BOARD_DAY_IMAGE;
-    }
-    if (resolvedBoardVariant === "mood") {
-      return BOARD_MOOD_IMAGE;
-    }
-    return BOARD_NIGHT_IMAGE;
-  }, [resolvedBoardVariant]);
-
-  const loadRecentPosts = useCallback(async () => {
-    setIsLoadingRecentPosts(true);
-    setRecentPostsError(null);
-
-    const attemptWithMetadata = async () => {
-      return supabase
-        .from("posts")
-        .select(
-          `
-          id,
-          author_id,
-          title,
-          body,
-          abstract,
-          thumbnail_image_url,
-          like_count,
-          comment_count,
-          created_at,
-          sections ( code ),
-          categories ( slug ),
-          universities ( name_ko, short_name ),
-          post_images ( image_url, sort_order )
-        `
-        )
-        .order("created_at", { ascending: false })
-        .limit(12);
-    };
-
-    const attemptWithoutMetadata = async () => {
-      return supabase
-        .from("posts")
-        .select(
-          `
-          id,
-          author_id,
-          title,
-          body,
-          like_count,
-          comment_count,
-          created_at,
-          sections ( code ),
-          categories ( slug ),
-          universities ( name_ko, short_name ),
-          post_images ( image_url, sort_order )
-        `
-        )
-        .order("created_at", { ascending: false })
-        .limit(12);
-    };
-
-    let data: unknown = null;
-    let error: { message: string } | null = null;
-
-    const withMetadata = await attemptWithMetadata();
-    data = withMetadata.data;
-    error = withMetadata.error ? { message: withMetadata.error.message } : null;
-
-    if (error && /column/i.test(error.message) && /abstract|thumbnail_image_url/i.test(error.message)) {
-      const withoutMetadata = await attemptWithoutMetadata();
-      data = withoutMetadata.data;
-      error = withoutMetadata.error ? { message: withoutMetadata.error.message } : null;
-    }
-
-    if (error) {
-      setRecentPostsError(error.message);
-      setRecentPosts([]);
-      setIsLoadingRecentPosts(false);
-      return;
-    }
-
-    const rows = (data ?? []) as Array<{
-      id: number;
-      author_id: string;
-      title: string;
-      body: string;
-      abstract?: string | null;
-      thumbnail_image_url?: string | null;
-      like_count: number | null;
-      comment_count: number | null;
-      created_at: string;
-      sections: { code: string | null } | null;
-      categories: { slug: string | null } | null;
-      universities: { name_ko: string | null; short_name: string | null } | null;
-      post_images: Array<{ image_url: string; sort_order: number | null }> | null;
-    }>;
-
-    const mapped = rows.map((row) => ({
-      id: row.id,
-      authorId: row.author_id,
-      authorName: null,
-      title: row.title,
-      body: row.body,
-      abstract: typeof row.abstract === "string" ? row.abstract : null,
-      thumbnailImageUrl:
-        typeof row.thumbnail_image_url === "string" ? row.thumbnail_image_url : null,
-      likeCount: row.like_count ?? 0,
-      commentCount: row.comment_count ?? 0,
-      createdAt: row.created_at,
-      section: row.sections ? { slug: row.sections.code ?? null } : null,
-      category: row.categories ? { slug: row.categories.slug ?? null } : null,
-      university: row.universities
-        ? { name: row.universities.name_ko ?? null, shortName: row.universities.short_name ?? null }
-        : null,
-      images: ((row.post_images ?? []) as Array<{ image_url: string; sort_order: number | null }>).map(
-        (image: { image_url: string; sort_order: number | null }) => ({
-          imageUrl: image.image_url,
-          sortOrder: image.sort_order ?? null
-        })
-      )
-    }));
-
-    setRecentPosts(mapped);
-    setIsLoadingRecentPosts(false);
-
-    const authorIds = Array.from(new Set(mapped.map((row) => row.authorId).filter(Boolean)));
-    if (authorIds.length === 0) {
-      return;
-    }
-
-    const { data: profileData, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("id, display_name")
-      .in("id", authorIds);
-
-    if (profileError) {
-      return;
-    }
-
-    const displayNameMap = new Map<string, string | null>();
-    (profileData ?? []).forEach((profile) => {
-      displayNameMap.set(profile.id, profile.display_name ?? null);
-    });
-
-    setRecentPosts((current) =>
-      current.map((post) => ({
-        ...post,
-        authorName: displayNameMap.get(post.authorId) ?? post.authorName
-      }))
-    );
-  }, []);
+  const cardWidth = Math.min(Math.max(width - 110, 240), 290);
+  const cardGap = spacing.md;
+  const snapStep = cardWidth + cardGap;
+  const sidePadding = Math.max((width - cardWidth) / 2, spacing.lg);
+  const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
+  const hasVerifiedSchool = Boolean(verifiedUniversityId);
 
   useEffect(() => {
-    void loadRecentPosts();
-  }, [loadRecentPosts]);
+    const timeout = setTimeout(() => {
+      cardScrollRef.current?.scrollTo({
+        x: snapStep,
+        y: 0,
+        animated: false
+      });
+    }, 10);
 
-  useFocusEffect(
-    useCallback(() => {
-      void loadRecentPosts();
-    }, [loadRecentPosts])
-  );
+    return () => clearTimeout(timeout);
+  }, [snapStep]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadVerifiedUniversity() {
-      setUniversityError(null);
-      setVerifiedUniversitySlug(null);
-      setVerifiedUniversity(null);
+    async function loadHomeEntryData() {
+      try {
+        const [content, latestHomePopup, hideMap, guideHideUntil, guideDismissedForever] = await Promise.all([
+          fetchHomeGuideContent(),
+          fetchLatestHomePopupAnnouncement(),
+          readHomePopupHideUntilMap(),
+          readHomeGuideHideUntil(),
+          readHomeGuideDismissedForever()
+        ]);
 
-      if (!auth.isSignedIn || !verifiedUniversityId) {
-        return;
+        if (!cancelled) {
+          setHomeGuideContent(content);
+          setHomeAnnouncement(latestHomePopup);
+          setHomePopupHideUntilMap(hideMap);
+          setHomeGuideHideUntil(guideHideUntil);
+          setIsHomeGuideDismissedForever(guideDismissedForever);
+          setIsGuideDismissedForSession(false);
+          setIsHomeEntryDataReady(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setHomePopupHideUntilMap({});
+          setHomeGuideHideUntil(0);
+          setIsHomeGuideDismissedForever(false);
+          setIsGuideDismissedForSession(false);
+          setIsHomeEntryDataReady(true);
+        }
       }
-
-      setIsLoadingUniversity(true);
-
-      const { data, error } = await supabase
-        .from("universities")
-        .select("slug, name:name_ko, short_name")
-        .eq("id", verifiedUniversityId)
-        .maybeSingle();
-
-      if (cancelled) {
-        return;
-      }
-
-      if (error) {
-        setUniversityError(error.message);
-        setIsLoadingUniversity(false);
-        return;
-      }
-
-      const universityRow = data as unknown as {
-        slug: string | null;
-        name: string | null;
-        short_name: string | null;
-      } | null;
-
-      setVerifiedUniversitySlug(universityRow?.slug ?? null);
-      setVerifiedUniversity(
-        universityRow
-          ? {
-              slug: universityRow.slug ?? "",
-              name: universityRow.name ?? "University",
-              shortName: universityRow.short_name ?? null
-            }
-          : null
-      );
-      setIsLoadingUniversity(false);
     }
 
-    void loadVerifiedUniversity();
+    void loadHomeEntryData();
 
     return () => {
       cancelled = true;
     };
-  }, [auth.isSignedIn, verifiedUniversityId]);
+  }, []);
 
-  const rankedPosts = useMemo(() => {
-    return [...recentPosts]
-      .sort((a, b) => {
-        const aScore = a.likeCount * 3 + a.commentCount * 2;
-        const bScore = b.likeCount * 3 + b.commentCount * 2;
-        if (bScore !== aScore) {
-          return bScore - aScore;
+  useEffect(() => {
+    if (!isHomeEntryDataReady) {
+      return;
+    }
+
+    const announcementKey = homeAnnouncement ? getAnnouncementVersionKey(homeAnnouncement) : null;
+    const now = Date.now();
+    const isHiddenForWeek =
+      announcementKey !== null && (homePopupHideUntilMap[announcementKey] ?? 0) > now;
+    const isSessionDismissed = announcementKey !== null && sessionDismissedAnnouncementKey === announcementKey;
+    const isGuideHiddenForWeek = homeGuideHideUntil > now;
+
+    if (announcementKey && !isHiddenForWeek && !isSessionDismissed) {
+      setIsAnnouncementModalVisible(true);
+      setIsGuideModalVisible(false);
+      return;
+    }
+
+    if (
+      homeGuideContent.isVisible &&
+      !isGuideDismissedForSession &&
+      !isGuideHiddenForWeek &&
+      !isHomeGuideDismissedForever
+    ) {
+      setIsGuideModalVisible(true);
+      return;
+    }
+
+    setIsGuideModalVisible(false);
+  }, [
+    homeGuideContent.isVisible,
+    homeAnnouncement,
+    homeGuideHideUntil,
+    homePopupHideUntilMap,
+    isGuideDismissedForSession,
+    isHomeGuideDismissedForever,
+    isHomeEntryDataReady,
+    sessionDismissedAnnouncementKey
+  ]);
+
+  function submitGlobalSearch() {
+    const query = searchInput.trim();
+    if (!query) {
+      return;
+    }
+
+    router.push({
+      pathname: "/home/search",
+      params: { q: query, returnTo: "/(tabs)" }
+    });
+  }
+
+  function toggleQuickActions() {
+    const nextOpen = !isQuickActionsOpen;
+    setIsQuickActionsOpen(nextOpen);
+
+    Animated.timing(quickActionsAnim, {
+      toValue: nextOpen ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true
+    }).start();
+  }
+
+  async function closeAnnouncementForWeek() {
+    if (!homeAnnouncement) {
+      setIsAnnouncementModalVisible(false);
+      return;
+    }
+
+    const key = getAnnouncementVersionKey(homeAnnouncement);
+    const nextMap = {
+      ...homePopupHideUntilMap,
+      [key]: Date.now() + HOME_POPUP_WEEK_MS
+    };
+
+    setHomePopupHideUntilMap(nextMap);
+    setSessionDismissedAnnouncementKey(key);
+    setIsAnnouncementModalVisible(false);
+    await AsyncStorage.setItem(HOME_POPUP_HIDE_UNTIL_STORAGE_KEY, JSON.stringify(nextMap));
+  }
+
+  function closeAnnouncementForSession() {
+    if (homeAnnouncement) {
+      setSessionDismissedAnnouncementKey(getAnnouncementVersionKey(homeAnnouncement));
+    }
+    setIsAnnouncementModalVisible(false);
+  }
+
+  function closeGuideForSession() {
+    setIsGuideDismissedForSession(true);
+    setIsGuideModalVisible(false);
+  }
+
+  async function hideGuideForWeek() {
+    const hideUntil = Date.now() + HOME_GUIDE_WEEK_MS;
+    setHomeGuideHideUntil(hideUntil);
+    setIsGuideModalVisible(false);
+    await AsyncStorage.setItem(HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY, String(hideUntil));
+  }
+
+  async function dismissGuideForever() {
+    setIsHomeGuideDismissedForever(true);
+    setIsGuideModalVisible(false);
+    await AsyncStorage.setItem(HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY, "true");
+  }
+
+  async function handleQuickActionPress(actionKey: QuickActionKey) {
+    if (actionKey === "campus-notice") {
+      try {
+        let targetAnnouncement = homeAnnouncement;
+        if (!targetAnnouncement) {
+          targetAnnouncement = await fetchLatestHomePopupAnnouncement();
+          if (targetAnnouncement) {
+            setHomeAnnouncement(targetAnnouncement);
+          }
         }
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      })
-      .slice(0, 3);
-  }, [recentPosts]);
+
+        if (targetAnnouncement) {
+          setIsAnnouncementModalVisible(true);
+        }
+      } catch {
+        setIsAnnouncementModalVisible(false);
+      }
+      return;
+    }
+
+    if (actionKey === "my-posts") {
+      router.push({
+        pathname: "/my-posts",
+        params: { returnTo: "/(tabs)" }
+      });
+      return;
+    }
+
+    if (!verifiedUniversityId) {
+      return;
+    }
+
+    if (actionKey === "my-school") {
+      router.push({
+        pathname: "/universities/[universityId]",
+        params: { universityId: String(verifiedUniversityId) }
+      });
+      return;
+    }
+
+    router.push({
+      pathname: "/universities/[universityId]",
+      params: { universityId: String(verifiedUniversityId), section: "notice" }
+    });
+  }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.heroSection}>
-        <Image
-          source={require("../../assets/home/shanghai-banner-light.png")}
-          style={styles.heroBannerImage}
-          resizeMode="contain"
+    <View style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <CityHeroHeader
+          title="LUCL"
+          subtitle="Link Your China Life"
+          height={164}
+          imageOffsetY={-10}
+          contentOffsetY={8}
+          contentStyle={styles.heroContentCentered}
         />
 
-        <View style={styles.heroOverlayContent}>
-          <View style={styles.brandBlock}>
-            <Text style={styles.brandHeading}>Shanghai 上海</Text>
-            <View style={styles.brandIdentityRow}>
-              {verifiedUniversityLogoSource ? (
-                <Image source={verifiedUniversityLogoSource} style={styles.brandIdentityLogo} resizeMode="contain" />
-              ) : null}
-              <Text style={styles.brandSubHeading}>{homeUserName}</Text>
+        <View style={styles.logoRow}>
+          {SCHOOL_LOGOS.map((school) => (
+            <View key={school.key} style={styles.logoButton}>
+              <Image source={LOGO_ASSETS[school.key]} style={styles.logoImage} resizeMode="contain" />
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={18} color={colors.textMuted} />
+          <TextInput
+            value={searchInput}
+            onChangeText={setSearchInput}
+            onSubmitEditing={submitGlobalSearch}
+            placeholder="Search across LUCL"
+            placeholderTextColor={colors.textMuted}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          <Pressable onPress={submitGlobalSearch} style={styles.searchActionButton}>
+            <Text style={styles.searchActionButtonLabel}>Go</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView
+          ref={cardScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToInterval={snapStep}
+          snapToAlignment="start"
+          contentContainerStyle={{
+            paddingHorizontal: sidePadding,
+            gap: cardGap
+          }}
+        >
+          {CARDS.map((card) => (
+            <Pressable
+              key={card.key}
+              onPress={() =>
+                router.push({
+                  pathname: card.route as never,
+                  params: { returnTo: "/(tabs)" }
+                })
+              }
+              style={[styles.carouselCard, { width: cardWidth }]}
+            >
+              <View style={styles.cardImage}>
+                <Image source={CARD_ASSETS[card.key]} style={styles.cardImageAsset} resizeMode="cover" />
+              </View>
+
+              <View style={styles.cardFooter}>
+                <Text style={styles.cardTitle}>{card.title}</Text>
+                <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </ScrollView>
+
+      <View
+        style={[styles.quickActionsRoot, { bottom: Math.max(insets.bottom - 32, -12), transform: [{ scale: 0.92 }] }]}
+        pointerEvents="box-none"
+      >
+        <View style={styles.quickActionsRow}>
+          <Animated.View
+            style={[
+              styles.quickActionsTrack,
+              {
+                opacity: quickActionsAnim,
+                transform: [
+                  {
+                    translateX: quickActionsAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [20, 0]
+                    })
+                  },
+                  {
+                    scale: quickActionsAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.92, 1]
+                    })
+                  }
+                ]
+              }
+            ]}
+            pointerEvents={isQuickActionsOpen ? "auto" : "none"}
+          >
+            {QUICK_ACTIONS.map((action) => {
+              const schoolDependent = action.key === "my-school";
+              const disabled = schoolDependent && !hasVerifiedSchool;
+              return (
+                <View key={action.key} style={styles.quickActionItem}>
+                  <Pressable
+                    onPress={() => void handleQuickActionPress(action.key)}
+                    disabled={disabled}
+                    style={[styles.quickActionButton, disabled && styles.quickActionButtonDisabled]}
+                  >
+                    <Ionicons name={action.icon} size={18} color={disabled ? colors.textMuted : colors.accent} />
+                  </Pressable>
+                  <Text
+                    numberOfLines={1}
+                    ellipsizeMode="clip"
+                    style={[styles.quickActionLabel, disabled && styles.quickActionDisabledLabel]}
+                  >
+                    {action.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </Animated.View>
+
+          <Pressable onPress={toggleQuickActions} style={styles.quickMainButton}>
+            <Text style={styles.quickMainButtonLabel}>{isQuickActionsOpen ? ">>" : "<<"}</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <Modal
+        visible={isAnnouncementModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAnnouncementForSession}
+      >
+        <View style={styles.homeAnnouncementBackdrop}>
+          <View style={styles.homeAnnouncementCard}>
+            <View style={styles.homeAnnouncementHeader}>
+              <Text style={styles.homeAnnouncementBadge}>Home Announcement</Text>
+              <Pressable onPress={closeAnnouncementForSession}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+            <Text style={styles.homeAnnouncementTitle}>{homeAnnouncement?.title ?? ""}</Text>
+            {homeAnnouncement?.outline ? (
+              <Text style={styles.homeAnnouncementOutline}>{homeAnnouncement.outline}</Text>
+            ) : null}
+            <ScrollView
+              style={styles.homeAnnouncementBodyScroll}
+              contentContainerStyle={styles.homeAnnouncementBodyContent}
+            >
+              <Text style={styles.homeAnnouncementBody}>{homeAnnouncement?.body ?? ""}</Text>
+            </ScrollView>
+            <View style={styles.homeAnnouncementActions}>
+              <Pressable style={styles.homeAnnouncementActionGhost} onPress={closeAnnouncementForSession}>
+                <Text style={styles.homeAnnouncementActionGhostLabel}>닫기</Text>
+              </Pressable>
+              <Pressable style={styles.homeAnnouncementActionPrimary} onPress={() => void closeAnnouncementForWeek()}>
+                <Text style={styles.homeAnnouncementActionPrimaryLabel}>일주일간 닫기</Text>
+              </Pressable>
             </View>
           </View>
         </View>
-      </View>
+      </Modal>
 
-      <View style={[styles.boardSectionCard, styles.boardSectionCardAttached]}>
-        <View style={[styles.boardWrap, { width: boardWidth, height: boardHeight }]}>
-          <Image source={boardImageSource} style={styles.boardImage} resizeMode="cover" />
-          <View style={styles.boardOverlayShade} />
-
-          {BOARD_NODES.map((node) => (
-            <BoardLogoNode
-              key={node.key}
-              node={node}
-              isDay={resolvedBoardVariant === "day"}
-              onPress={() => router.push(`/universities/${node.slug}` as never)}
-            />
-          ))}
-        </View>
-
-        <View style={styles.boardControlRow}>
-          <View style={styles.modeToggleWrap}>
-            {(["day", "mood", "night", "auto"] as BoardMode[]).map((mode) => {
-              const active = boardMode === mode;
-              const label =
-                mode === "day" ? "Day" : mode === "mood" ? "Mood" : mode === "night" ? "Night" : "Auto";
-
-              return (
-                <Pressable
-                  key={mode}
-                  onPress={() => setBoardMode(mode)}
-                  style={[styles.modeToggleButton, active ? styles.modeToggleButtonActive : null]}
-                >
-                  <Text style={[styles.modeToggleButtonText, active ? styles.modeToggleButtonTextActive : null]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {verifiedUniversitySlug ? (
-            <Pressable
-              onPress={() => router.push(`/universities/${verifiedUniversitySlug}` as never)}
-              style={styles.primaryButton}
-            >
-              <Text style={styles.primaryButtonLabel}>Open my campus</Text>
-            </Pressable>
-          ) : (
-            <Pressable style={[styles.primaryButton, styles.primaryButtonDisabled]} disabled>
-              <Text style={styles.primaryButtonLabel}>
-                {auth.isSignedIn
-                  ? isLoadingUniversity
-                    ? "Resolving university..."
-                    : "Verify school"
-                  : "Sign in"}
-              </Text>
-            </Pressable>
-          )}
-        </View>
-
-        {universityError ? <Text style={styles.errorText}>{universityError}</Text> : null}
-      </View>
-
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeaderRow}>
-          <View>
-            <Text style={styles.sectionTitle}>Ranked</Text>
-            <Text style={styles.sectionSubtitle}>Top 3 posts by engagement</Text>
-          </View>
-        </View>
-
-        {isLoadingRecentPosts ? <Text style={styles.metaText}>Loading ranked posts...</Text> : null}
-        {recentPostsError ? <Text style={styles.errorText}>Unable to load posts: {recentPostsError}</Text> : null}
-        {!isLoadingRecentPosts && rankedPosts.length === 0 && !recentPostsError ? (
-          <Text style={styles.metaText}>No ranked posts yet.</Text>
-        ) : null}
-
-        <View style={styles.feedList}>
-          {rankedPosts.map((post, index) => (
-            <PostCard key={`ranked-${post.id}`} post={post} rank={index + 1} />
-          ))}
-        </View>
-      </View>
-    </ScrollView>
-  );
-}
-
-function BoardLogoNode({
-  node,
-  isDay,
-  onPress
-}: {
-  node: BoardNode;
-  isDay: boolean;
-  onPress: () => void;
-}) {
-  const logoSource = LOGO_ASSETS[node.logoKey];
-  const rowStyle = node.labelSide === "left" ? styles.logoNodeRowLeft : styles.logoNodeRowRight;
-  const anchorStyle = node.labelSide === "left" ? styles.logoNodeWrapLeftAnchor : null;
-  const labelStyle = node.key === "ecnu-putuo" ? styles.logoNodeLabelCardLifted : null;
-
-  return (
-    <Pressable
-      hitSlop={10}
-      onPress={onPress}
-      style={[
-        styles.logoNodeWrap,
-        anchorStyle,
-        {
-          top: node.top,
-          left: node.left,
-          zIndex: node.zIndex ?? 1
-        }
-      ]}
-    >
-      <View style={[styles.logoNodeRow, rowStyle]}>
-        <View
-          style={[
-            styles.logoNodeButton,
-            {
-              width: node.size,
-              height: node.size,
-              borderRadius: node.size / 2
-            }
-          ]}
-        >
-          <Image source={logoSource} style={styles.logoNodeImage} resizeMode="contain" />
-        </View>
-
-        <View style={[styles.logoNodeLabelCard, isDay ? styles.logoNodeLabelCardDay : null, labelStyle]}>
-          <Text
+      <Modal
+        visible={isGuideModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeGuideForSession}
+      >
+        <View style={styles.guideModalBackdrop}>
+          <Pressable style={styles.guideBackdropDismissArea} onPress={closeGuideForSession} />
+          <View
             style={[
-              styles.logoNodeLabelTitle,
-              isDay ? styles.logoNodeLabelTitleDay : null
-            ]}
-            numberOfLines={1}
-          >
-            {node.shortLabel}
-          </Text>
-          <Text style={[styles.logoNodeLabelMeta, isDay ? styles.logoNodeLabelMetaDay : null]}>
-            User: {node.users}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function PostCard({ post, rank }: { post: RecentPost; rank?: number }) {
-  const router = useRouter();
-  const previewText = getPreviewText(post.abstract, post.body);
-  const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
-  const labelParts = [
-    post.university?.shortName ?? post.university?.name,
-    post.section?.slug,
-    post.category?.slug
-  ].filter(Boolean);
-  const dateLabel = formatDate(post.createdAt);
-
-  return (
-    <Pressable onPress={() => router.push(`/posts/${post.id}` as never)} style={styles.postCard}>
-      {rank ? (
-        <View style={styles.rankBadge}>
-          <Text style={styles.rankBadgeLabel}>{rank}</Text>
-        </View>
-      ) : null}
-      {thumbnailUrl ? (
-        <Image source={{ uri: thumbnailUrl }} style={styles.postThumbnail} />
-      ) : (
-        <View style={styles.postThumbnailPlaceholder}>
-          <Text style={styles.postThumbnailPlaceholderLabel}>Post</Text>
-        </View>
-      )}
-      <View style={styles.postContent}>
-        <Text style={styles.postTitle} numberOfLines={2}>
-          {post.title}
-        </Text>
-        {labelParts.length > 0 ? (
-          <Text style={styles.postMeta} numberOfLines={1}>
-            {labelParts.join(" · ")}
-          </Text>
-        ) : null}
-        <View style={styles.postMetaRow}>
-          <Text style={styles.postMeta}>{dateLabel}</Text>
-          <View style={styles.postMetaIconGroup}>
-            <Ionicons name="heart-outline" size={12} color={colors.textMuted} />
-            <Text style={styles.postMeta}>{post.likeCount}</Text>
-          </View>
-          <View style={styles.postMetaIconGroup}>
-            <Ionicons name="chatbubble-outline" size={12} color={colors.textMuted} />
-            <Text style={styles.postMeta}>{post.commentCount}</Text>
-          </View>
-        </View>
-        <Pressable
-          onPress={(event) => {
-            event.stopPropagation();
-            router.push({
-              pathname: "/users/[userId]",
-              params: {
-                userId: post.authorId,
-                returnTo: "/(tabs)"
+              styles.guideModalSheet,
+              {
+                paddingBottom: Math.max(insets.bottom + 14, 20),
+                paddingTop: Math.max(insets.top + 12, 20)
               }
-            });
-          }}
-          style={styles.authorIdentityButton}
-        >
-          <Ionicons name="person-circle-outline" size={14} color={colors.textSecondary} />
-          <Text style={styles.authorIdentityLabel} numberOfLines={1}>
-            {post.authorName ?? "Unknown"}
-          </Text>
-        </Pressable>
-        {previewText ? (
-          <Text style={styles.postPreview} numberOfLines={3}>
-            {previewText}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
+            ]}
+          >
+            <ScrollView contentContainerStyle={styles.guideModalContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.guideLetterCard}>
+                <View style={styles.guideCloseRow}>
+                  <Pressable
+                    style={styles.guideCloseButton}
+                    onPress={closeGuideForSession}
+                    hitSlop={8}
+                    accessibilityLabel="Close guide for this session"
+                  >
+                    <Ionicons name="close" size={20} color={colors.textPrimary} />
+                  </Pressable>
+                </View>
+                <Text style={styles.guideModalEyebrow}>Guide note</Text>
+                <Text style={styles.guideModalTitle}>{homeGuideContent.title}</Text>
+
+                <View style={styles.guideModalImageFrame}>
+                  <Image
+                    source={{ uri: HOME_GUIDE_IMAGE_URL }}
+                    style={styles.guideModalImage}
+                    resizeMode="cover"
+                  />
+                </View>
+
+                <Text style={styles.guideModalBody}>{homeGuideContent.body}</Text>
+                <Text style={styles.guideModalSignature}>LUCL Team</Text>
+                <View style={styles.guideActionsRow}>
+                  <Pressable style={styles.guideSnoozeButton} onPress={() => void hideGuideForWeek()}>
+                    <Text style={styles.guideSnoozeButtonLabel}>일주일간 보지 않기</Text>
+                  </Pressable>
+                  <Pressable style={styles.guideDismissButton} onPress={() => void dismissGuideForever()}>
+                    <Text style={styles.guideDismissButtonLabel}>다시보지 않기</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleDateString();
-}
-
-function getPreviewText(abstract: string | null, body: string): string {
-  if (abstract && abstract.trim().length > 0) {
-    return abstract.trim().length > 160 ? `${abstract.trim().slice(0, 157)}...` : abstract.trim();
-  }
-
-  if (!body) {
-    return "";
-  }
-
-  const text = body
-    .replace(/<img\s+[^>]*>/gi, " ")
-    .replace(/<\/?p>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
-}
-
-function getThumbnailUrl(
-  thumbnailImageUrl: string | null,
-  body: string,
-  images: { imageUrl: string; sortOrder: number | null }[]
-): string | null {
-  if (thumbnailImageUrl) {
-    return thumbnailImageUrl;
-  }
-
-  if (images.length > 0) {
-    const sorted = [...images].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    return sorted[0]?.imageUrl ?? null;
-  }
-
-  const match = /<img\s+[^>]*src=["']([^"']+)["']/i.exec(body);
-  return match?.[1] ?? null;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
-    paddingTop: 0,
-    gap: spacing.sm,
+  screen: {
+    flex: 1,
     backgroundColor: colors.background
   },
-  brandBlock: {
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 2
+  container: {
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+    backgroundColor: colors.background
   },
-  heroSection: {
-    position: "relative",
-    width: "100%",
-    alignSelf: "center",
-    height: 132,
-    marginBottom: 0,
-    overflow: "hidden",
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    borderBottomLeftRadius: radius.xl,
-    borderBottomRightRadius: radius.xl
+  heroContentCentered: {
+    justifyContent: "center",
+    alignItems: "center"
   },
-  heroBannerImage: {
-    position: "absolute",
-    top: -44,
-    left: 0,
-    width: "100%",
-    height: 198
-  },
-  heroOverlayContent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    paddingTop: spacing.lg,
-    zIndex: 2
-  },
-  boardSectionCardAttached: {
-    marginTop: -spacing.sm,
-    zIndex: 3
-  },
-
-  brandHeading: {
-    fontSize: typography.titleLarge,
-    fontWeight: "800",
-    color: colors.textPrimary,
-    textAlign: "center",
-    textShadowColor: "rgba(255,255,255,0.85)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 6
-  },
-  brandIdentityRow: {
+  logoRow: {
+    marginHorizontal: spacing.lg,
     flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap"
+  },
+  logoButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderWidth: 1,
+    borderColor: "rgba(173,194,220,0.7)",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.72)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.88)",
-    shadowColor: "#0f172a",
+    shadowColor: "#0f1f36",
     shadowOpacity: 0.08,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2
-  },
-  brandIdentityLogo: {
-    width: 20,
-    height: 20,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.16,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 }
-  },
-  brandSubHeading: {
-    fontSize: typography.body,
-    color: colors.textPrimary,
-    fontWeight: "700",
-    textShadowColor: "rgba(255,255,255,0.72)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4
-  },
-  sectionCard: {
-    marginTop: -spacing.sm,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.sm,
-    shadowColor: "#0b1e38",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2
   },
-  boardSectionCard: {
-    alignItems: "center",
-    backgroundColor: "transparent",
-    borderWidth: 0,
-    paddingHorizontal: 0,
-    paddingTop: 0,
-    paddingBottom: spacing.xs
+  logoImage: {
+    width: 28,
+    height: 28
   },
-  sectionHeaderRow: {
+  searchBar: {
+    marginHorizontal: spacing.lg,
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: spacing.sm
+    alignItems: "center",
+    gap: 8,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(173,194,220,0.64)",
+    shadowColor: "#0f1f36",
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1
   },
-  sectionTitle: {
+  searchInput: {
+    flex: 1,
+    fontSize: typography.body,
+    color: colors.textPrimary,
+    paddingVertical: 0
+  },
+  searchActionButton: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  searchActionButtonLabel: {
+    color: "#f8fafc",
+    fontSize: typography.caption,
+    fontWeight: "700"
+  },
+  carouselCard: {
+    borderRadius: radius.xl,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(173,194,220,0.56)",
+    overflow: "hidden",
+    shadowColor: "#0f1f36",
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4
+  },
+  cardImage: {
+    width: "100%",
+    aspectRatio: 3 / 4,
+    backgroundColor: "#e7edf7"
+  },
+  cardImageAsset: {
+    width: "100%",
+    height: "100%"
+  },
+  cardFooter: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.95)"
+  },
+  cardTitle: {
     fontSize: typography.subtitle,
     fontWeight: "700",
     color: colors.textPrimary
   },
-  sectionSubtitle: {
-    marginTop: 2,
+  cardSubtitle: {
     fontSize: typography.bodySmall,
-    color: colors.textMuted
+    color: colors.textSecondary
   },
-  boardControlRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: spacing.xs,
-    marginTop: 0
+  quickActionsRoot: {
+    position: "absolute",
+    right: spacing.lg,
+    width: 340,
+    alignItems: "flex-end"
   },
-  modeToggleWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 4,
-    flexShrink: 0
-  },
-  modeToggleButton: {
-    borderRadius: radius.pill,
-    paddingHorizontal: 9,
-    paddingVertical: 6
-  },
-  modeToggleButtonActive: {
-    backgroundColor: colors.accent
-  },
-  modeToggleButtonText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-    color: colors.textMuted
-  },
-  modeToggleButtonTextActive: {
-    color: "#f8fafc"
-  },
-  boardTapHint: {
-    fontSize: typography.caption,
-    color: colors.textMuted,
-    textAlign: "center"
-  },
-  boardWrap: {
-    alignSelf: "center",
+  quickActionsRow: {
     position: "relative",
-    overflow: "hidden",
-    borderRadius: 26,
-    backgroundColor: "#edf3fb",
-    borderWidth: 1,
-    borderColor: "#dbe5f3",
-    marginBottom: 2
-  },
-  boardImage: {
-    width: "100%",
-    height: "100%",
-    position: "absolute"
-  },
-  boardOverlayShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.02)"
-  },
-  logoNodeWrap: {
-    position: "absolute"
-  },
-  logoNodeWrapLeftAnchor: {
-    transform: [{ translateX: -46 }]
-  },
-  logoNodeRow: {
-    alignItems: "center",
-    gap: 4
-  },
-  logoNodeRowRight: {
-    flexDirection: "row"
-  },
-  logoNodeRowLeft: {
-    flexDirection: "row-reverse"
-  },
-  logoNodeButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.58)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.78)",
-    shadowColor: "#0b1e38",
-    shadowOpacity: 0.10,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1
-  },
-  logoNodeImage: {
-    width: "78%",
-    height: "78%"
-  },
-  logoNodeLabelCard: {
-    minWidth: 34,
-    maxWidth: 54,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.44)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.62)"
-  },
-  logoNodeLabelCardDay: {
-    backgroundColor: "rgba(255,255,255,0.72)",
-    borderColor: "rgba(148,163,184,0.72)"
-  },
-  logoNodeLabelCardLifted: {
-    transform: [{ translateY: -10 }]
-  },
-  logoNodeLabelTitle: {
-    fontSize: 6,
-    fontWeight: "700",
-    color: "#f8fafc"
-  },
-  logoNodeLabelTitleDay: {
-    color: "#0f172a"
-  },
-  logoNodeLabelMeta: {
-    marginTop: 0,
-    fontSize: 6,
-    color: "rgba(248,250,252,0.92)"
-  },
-  logoNodeLabelMetaDay: {
-    color: "rgba(15,23,42,0.82)"
-  },
-  primaryButton: {
-    borderRadius: radius.pill,
-    backgroundColor: colors.accent,
-    paddingVertical: 9,
-    paddingHorizontal: 11,
-    alignItems: "center",
-    alignSelf: "auto",
-    flexShrink: 0,
-    shadowColor: "#0b1e38",
-    shadowOpacity: 0.12,
-    shadowRadius: 7,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2
-  },
-  primaryButtonDisabled: {
-    opacity: 0.5
-  },
-  primaryButtonLabel: {
-    color: "#f8fafc",
-    fontWeight: "700",
-    fontSize: typography.caption
-  },
-  feedList: {
-    gap: spacing.sm
-  },
-  postCard: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm,
-    shadowColor: "#0b1e38",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2
+    justifyContent: "flex-end"
   },
-  rankBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.pill,
-    backgroundColor: colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2
+  quickActionsTrack: {
+    position: "absolute",
+    right: 60,
+    top: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8
   },
-  rankBadgeLabel: {
-    color: "#f8fafc",
-    fontWeight: "700",
-    fontSize: typography.caption
-  },
-  postThumbnail: {
-    width: 84,
-    height: 84,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface
-  },
-  postThumbnailPlaceholder: {
-    width: 84,
-    height: 84,
-    borderRadius: radius.sm,
-    backgroundColor: colors.accentSoft,
+  quickActionItem: {
+    width: 72,
+    height: 46,
+    position: "relative",
     alignItems: "center",
     justifyContent: "center"
   },
-  postThumbnailPlaceholderLabel: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-    color: colors.accent
+  quickActionLabel: {
+    position: "absolute",
+    bottom: 52,
+    width: 72,
+    fontSize: 9,
+    lineHeight: 10,
+    color: "#3d4f68",
+    fontWeight: "600",
+    textAlign: "center",
+    backgroundColor: "rgba(248,250,252,0.9)",
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 2
   },
-  postContent: {
-    flex: 1,
-    gap: 4
+  quickActionDisabledLabel: {
+    color: "#8897aa"
   },
-  postTitle: {
+  quickActionButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "rgba(242,248,255,0.98)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(188,209,233,0.92)",
+    shadowColor: "#aac5e3",
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3
+  },
+  quickActionButtonDisabled: {
+    backgroundColor: "rgba(241,245,249,0.96)",
+    borderColor: "rgba(209,219,230,0.95)"
+  },
+  quickMainButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.textPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(248,250,252,0.9)",
+    shadowColor: "#0f1f36",
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5
+  },
+  quickMainButtonLabel: {
+    color: "#f8fafc",
     fontSize: typography.body,
+    fontWeight: "800"
+  },
+  homeAnnouncementBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg
+  },
+  homeAnnouncementCard: {
+    width: "100%",
+    maxWidth: 420,
+    maxHeight: "78%",
+    borderRadius: radius.xl,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#dbe4ee",
+    padding: spacing.md,
+    gap: spacing.sm
+  },
+  homeAnnouncementHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  homeAnnouncementBadge: {
+    fontSize: 12,
     fontWeight: "700",
+    color: "#1f3a5f"
+  },
+  homeAnnouncementTitle: {
+    fontSize: typography.subtitle,
+    fontWeight: "800",
     color: colors.textPrimary
   },
-  postMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8
-  },
-  postMetaIconGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4
-  },
-  postMeta: {
-    fontSize: typography.caption,
-    color: colors.textMuted
-  },
-  postPreview: {
+  homeAnnouncementOutline: {
     fontSize: typography.bodySmall,
-    lineHeight: 19,
     color: colors.textSecondary
   },
-  authorIdentityButton: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "rgba(255,255,255,0.88)",
-    paddingVertical: 3,
-    paddingHorizontal: 8
+  homeAnnouncementBodyScroll: {
+    maxHeight: 250
   },
-  authorIdentityLabel: {
-    maxWidth: 140,
-    fontSize: typography.caption,
-    color: colors.textSecondary,
+  homeAnnouncementBodyContent: {
+    paddingBottom: 4
+  },
+  homeAnnouncementBody: {
+    fontSize: typography.body,
+    color: colors.textPrimary,
+    lineHeight: 22
+  },
+  homeAnnouncementActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "flex-end"
+  },
+  homeAnnouncementActionGhost: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.md
+  },
+  homeAnnouncementActionGhostLabel: {
+    color: "#334155",
+    fontSize: typography.bodySmall,
+    fontWeight: "700"
+  },
+  homeAnnouncementActionPrimary: {
+    backgroundColor: colors.textPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.md
+  },
+  homeAnnouncementActionPrimaryLabel: {
+    color: "#f8fafc",
+    fontSize: typography.bodySmall,
+    fontWeight: "700"
+  },
+  guideModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(44,31,18,0.26)",
+    justifyContent: "flex-end"
+  },
+  guideBackdropDismissArea: {
+    flex: 1
+  },
+  guideModalSheet: {
+    maxHeight: "84%",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    backgroundColor: "#f8f0e2",
+    borderTopWidth: 1,
+    borderTopColor: "#eadbc3",
+    paddingHorizontal: spacing.lg
+  },
+  guideModalContent: {
+    paddingBottom: spacing.md
+  },
+  guideLetterCard: {
+    marginTop: 8,
+    borderRadius: 20,
+    backgroundColor: "#fffaf0",
+    borderWidth: 1,
+    borderColor: "#e8dbc7",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+    shadowColor: "#4b3621",
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4
+  },
+  guideCloseRow: {
+    width: "100%",
+    alignItems: "flex-end"
+  },
+  guideCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderWidth: 1,
+    borderColor: "#e7d7bf"
+  },
+  guideModalEyebrow: {
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 1.1,
+    color: "#8b6e4b",
+    fontWeight: "700"
+  },
+  guideModalTitle: {
+    fontSize: typography.title,
+    color: "#3f2f20",
+    fontWeight: "800",
+    lineHeight: 30
+  },
+  guideModalImageFrame: {
+    padding: 8,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "#e7d7bf",
+    backgroundColor: "#f9f1e2"
+  },
+  guideModalImage: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: radius.md,
+    backgroundColor: "#e8dbc7"
+  },
+  guideModalImagePlaceholder: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "#e2d0b4",
+    backgroundColor: "#f5e8d5",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  guideModalImagePlaceholderLabel: {
+    fontSize: typography.bodySmall,
+    color: "#8b6e4b",
     fontWeight: "600"
   },
-  metaText: {
-    fontSize: typography.bodySmall,
-    color: colors.textMuted
+  guideModalBody: {
+    fontSize: typography.body,
+    lineHeight: 25,
+    color: "#5d4a38"
   },
-  errorText: {
+  guideModalSignature: {
+    fontSize: 12,
+    color: "#8b6e4b",
+    fontWeight: "600",
+    textAlign: "right"
+  },
+  guideActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm
+  },
+  guideSnoozeButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#cbb79a",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    backgroundColor: "#f7efdf"
+  },
+  guideSnoozeButtonLabel: {
+    color: "#5d4a38",
     fontSize: typography.bodySmall,
-    color: colors.error
+    fontWeight: "700"
+  },
+  guideDismissButton: {
+    borderRadius: radius.md,
+    backgroundColor: "#5d4a38",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8
+  },
+  guideDismissButtonLabel: {
+    color: "#fef8ef",
+    fontSize: typography.bodySmall,
+    fontWeight: "700"
   }
 });

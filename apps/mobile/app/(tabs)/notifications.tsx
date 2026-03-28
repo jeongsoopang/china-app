@@ -1,7 +1,8 @@
 import { Link, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuthSession } from "../../src/features/auth/auth-session";
+import { CityHeroHeader } from "../../src/ui/city-hero-header";
 import {
   fetchAnnouncementDetailById,
   mapNotificationsError,
@@ -21,6 +22,29 @@ function formatCreatedAt(value: string): string {
 }
 
 type NotificationTab = "announcement" | "notification";
+const ANNOUNCEMENT_PAPER = require("../../assets/announcements/announcement-letter-paper.png");
+
+function AnnouncementAttachmentImage({ imageUrl }: { imageUrl: string }) {
+  const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
+
+  return (
+    <View style={styles.detailImageFrame}>
+      <Image
+        source={{ uri: imageUrl }}
+        resizeMode="contain"
+        style={[styles.detailImage, { aspectRatio }]}
+        onLoad={({ nativeEvent }) => {
+          const width = nativeEvent.source?.width ?? 0;
+          const height = nativeEvent.source?.height ?? 0;
+
+          if (width > 0 && height > 0) {
+            setAspectRatio(width / height);
+          }
+        }}
+      />
+    </View>
+  );
+}
 
 function AuthenticatedNotificationsContent() {
   const router = useRouter();
@@ -84,8 +108,18 @@ function AuthenticatedNotificationsContent() {
 
   if (notifications.isLoading && notifications.state.notifications.length === 0) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.text}>Loading notifications...</Text>
+      <View style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <CityHeroHeader
+            title="Notifications"
+            height={164}
+            imageOffsetY={-10}
+            contentOffsetY={8}
+          />
+          <View style={styles.contentInner}>
+            <Text style={styles.text}>Loading notifications...</Text>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -93,93 +127,115 @@ function AuthenticatedNotificationsContent() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.tabRow}>
-          <Pressable
-            onPress={() => setTab("announcement")}
-            style={[styles.tabCard, tab === "announcement" && styles.tabCardActive]}
-          >
-            <Text style={[styles.tabTitle, tab === "announcement" && styles.tabTitleActive]}>
-              Announcement
-            </Text>
-            <Text style={[styles.tabMeta, tab === "announcement" && styles.tabMetaActive]}>
-              {announcementItems.length}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setTab("notification")}
-            style={[styles.tabCard, tab === "notification" && styles.tabCardActive]}
-          >
-            <Text style={[styles.tabTitle, tab === "notification" && styles.tabTitleActive]}>
-              Notification
-            </Text>
-            <Text style={[styles.tabMeta, tab === "notification" && styles.tabMetaActive]}>
-              {personalItems.length}
-            </Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.metaRow}>
-          <Text style={styles.metaText}>Unread: {visibleUnreadCount}</Text>
-          <Pressable
-            disabled={!notifications.canMarkAllAsRead}
-            onPress={notifications.onMarkAllAsRead}
-            style={[
-              styles.markAllButton,
-              !notifications.canMarkAllAsRead && styles.markAllButtonDisabled
-            ]}
-          >
-            <Text style={styles.markAllButtonLabel}>
-              {notifications.isMarkingAll ? "Marking..." : "Mark all as read"}
-            </Text>
-          </Pressable>
-        </View>
-
-        {announcementError ? <Text style={styles.errorText}>{announcementError}</Text> : null}
-
-        {visibleItems.length === 0 ? (
-          <Text style={styles.text}>No notifications yet.</Text>
-        ) : (
-          <View style={styles.list}>
-            {visibleItems.map((notification) => {
-              const isPendingItem =
-                notifications.isMarkingOne &&
-                notifications.state.processingNotificationId === notification.id;
-
-              return (
-                <Pressable
-                  key={notification.id}
-                  disabled={isPendingItem || notifications.isMarkingAll}
-                  onPress={() => void handlePressNotification(notification)}
-                  style={[
-                    styles.card,
-                    !notification.is_read && styles.unreadCard,
-                    (isPendingItem || notifications.isMarkingAll) && styles.cardDisabled
-                  ]}
-                >
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.cardTitle}>{notification.title}</Text>
-                    <Text style={styles.statusText}>
-                      {isPendingItem ? "Marking..." : notification.is_read ? "Read" : "Unread"}
-                    </Text>
-                  </View>
-                  <Text style={styles.cardMessage}>{notification.body}</Text>
-                  <Text style={styles.cardMeta}>{formatCreatedAt(notification.created_at)}</Text>
-                </Pressable>
-              );
-            })}
+        <CityHeroHeader
+          title="Notifications"
+          height={164}
+          imageOffsetY={-10}
+          contentOffsetY={8}
+        />
+        <View style={styles.contentInner}>
+          <View style={styles.tabRow}>
+            <Pressable
+              onPress={() => setTab("announcement")}
+              style={[styles.tabCard, tab === "announcement" && styles.tabCardActive]}
+            >
+              <Text style={[styles.tabTitle, tab === "announcement" && styles.tabTitleActive]}>
+                Announcement
+              </Text>
+              <Text style={[styles.tabMeta, tab === "announcement" && styles.tabMetaActive]}>
+                {announcementItems.length}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setTab("notification")}
+              style={[styles.tabCard, tab === "notification" && styles.tabCardActive]}
+            >
+              <Text style={[styles.tabTitle, tab === "notification" && styles.tabTitleActive]}>
+                Notification
+              </Text>
+              <Text style={[styles.tabMeta, tab === "notification" && styles.tabMetaActive]}>
+                {personalItems.length}
+              </Text>
+            </Pressable>
           </View>
-        )}
 
-        <Pressable onPress={notifications.refresh} style={styles.refreshButton}>
-          <Text style={styles.refreshButtonLabel}>Refresh</Text>
-        </Pressable>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaText}>Unread: {visibleUnreadCount}</Text>
+            <Pressable
+              disabled={!notifications.canMarkAllAsRead}
+              onPress={notifications.onMarkAllAsRead}
+              style={[
+                styles.markAllButton,
+                !notifications.canMarkAllAsRead && styles.markAllButtonDisabled
+              ]}
+            >
+              <Text style={styles.markAllButtonLabel}>
+                {notifications.isMarkingAll ? "Marking..." : "Mark all as read"}
+              </Text>
+            </Pressable>
+          </View>
 
-        {notifications.state.infoMessage ? (
-          <Text style={styles.infoText}>{notifications.state.infoMessage}</Text>
-        ) : null}
-        {notifications.state.errorMessage ? (
-          <Text style={styles.errorText}>{notifications.state.errorMessage}</Text>
-        ) : null}
+          {announcementError ? <Text style={styles.errorText}>{announcementError}</Text> : null}
+
+          {visibleItems.length === 0 ? (
+            <Text style={styles.text}>No notifications yet.</Text>
+          ) : (
+            <View style={styles.list}>
+              {visibleItems.map((notification) => {
+                const isPendingItem =
+                  notifications.isMarkingOne &&
+                  notifications.state.processingNotificationId === notification.id;
+
+                return (
+                  <Pressable
+                    key={notification.id}
+                    disabled={isPendingItem || notifications.isMarkingAll}
+                    onPress={() => void handlePressNotification(notification)}
+                    style={[
+                      styles.card,
+                      !notification.is_read && styles.unreadCard,
+                      (isPendingItem || notifications.isMarkingAll) && styles.cardDisabled
+                    ]}
+                  >
+                    <ImageBackground
+                      source={ANNOUNCEMENT_PAPER}
+                      resizeMode="cover"
+                      style={styles.cardPaper}
+                      imageStyle={styles.cardPaperImage}
+                    >
+                      <View
+                        style={[
+                          styles.cardContentOverlay,
+                          !notification.is_read && styles.cardContentOverlayUnread
+                        ]}
+                      >
+                        <View style={styles.cardHeader}>
+                          <Text style={styles.cardTitle}>{notification.title}</Text>
+                          <Text style={styles.statusText}>
+                            {isPendingItem ? "Marking..." : notification.is_read ? "Read" : "Unread"}
+                          </Text>
+                        </View>
+                        <Text style={styles.cardMessage}>{notification.body}</Text>
+                        <Text style={styles.cardMeta}>{formatCreatedAt(notification.created_at)}</Text>
+                      </View>
+                    </ImageBackground>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          <Pressable onPress={notifications.refresh} style={styles.refreshButton}>
+            <Text style={styles.refreshButtonLabel}>Refresh</Text>
+          </Pressable>
+
+          {notifications.state.infoMessage ? (
+            <Text style={styles.infoText}>{notifications.state.infoMessage}</Text>
+          ) : null}
+          {notifications.state.errorMessage ? (
+            <Text style={styles.errorText}>{notifications.state.errorMessage}</Text>
+          ) : null}
+        </View>
       </ScrollView>
 
       <Modal
@@ -194,35 +250,54 @@ function AuthenticatedNotificationsContent() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <View style={styles.detailHeader}>
-              <Text style={styles.detailBadge}>공지 상세</Text>
-              <Pressable
-                onPress={() => {
-                  if (!isLoadingAnnouncement) {
-                    setSelectedAnnouncement(null);
-                  }
-                }}
-              >
-                <Text style={styles.detailClose}>닫기</Text>
-              </Pressable>
-            </View>
+            <ImageBackground
+              source={ANNOUNCEMENT_PAPER}
+              resizeMode="cover"
+              style={styles.modalPaper}
+              imageStyle={styles.modalPaperImage}
+            >
+              <View style={styles.modalPaperOverlay}>
+                <View style={styles.detailHeader}>
+                  <Text style={styles.detailBadge}>공지 상세</Text>
+                  <Pressable
+                    onPress={() => {
+                      if (!isLoadingAnnouncement) {
+                        setSelectedAnnouncement(null);
+                      }
+                    }}
+                  >
+                    <Text style={styles.detailClose}>닫기</Text>
+                  </Pressable>
+                </View>
 
-            {isLoadingAnnouncement ? (
-              <Text style={styles.detailLoading}>공지 내용을 불러오는 중...</Text>
-            ) : selectedAnnouncement ? (
-              <>
-                <Text style={styles.detailTitle}>{selectedAnnouncement.title}</Text>
-                {selectedAnnouncement.outline ? (
-                  <Text style={styles.detailOutline}>{selectedAnnouncement.outline}</Text>
+                {isLoadingAnnouncement ? (
+                  <Text style={styles.detailLoading}>공지 내용을 불러오는 중...</Text>
+                ) : selectedAnnouncement ? (
+                  <ScrollView
+                    style={styles.detailContentScroll}
+                    contentContainerStyle={styles.detailContentContainer}
+                  >
+                    <Text style={styles.detailTitle}>{selectedAnnouncement.title}</Text>
+                    {selectedAnnouncement.outline ? (
+                      <Text style={styles.detailOutline}>{selectedAnnouncement.outline}</Text>
+                    ) : null}
+                    <Text style={styles.detailMeta}>
+                      {formatCreatedAt(selectedAnnouncement.published_at ?? selectedAnnouncement.created_at)}
+                    </Text>
+                    {selectedAnnouncement.image_urls.length > 0 ? (
+                      <View style={styles.detailImageList}>
+                        {selectedAnnouncement.image_urls.map((imageUrl) => (
+                          <AnnouncementAttachmentImage key={imageUrl} imageUrl={imageUrl} />
+                        ))}
+                      </View>
+                    ) : null}
+                    {selectedAnnouncement.body ? (
+                      <Text style={styles.detailBody}>{selectedAnnouncement.body}</Text>
+                    ) : null}
+                  </ScrollView>
                 ) : null}
-                <Text style={styles.detailMeta}>
-                  {formatCreatedAt(selectedAnnouncement.published_at ?? selectedAnnouncement.created_at)}
-                </Text>
-                <ScrollView style={styles.detailBodyScroll} contentContainerStyle={{ paddingBottom: 4 }}>
-                  <Text style={styles.detailBody}>{selectedAnnouncement.body}</Text>
-                </ScrollView>
-              </>
-            ) : null}
+              </View>
+            </ImageBackground>
           </View>
         </View>
       </Modal>
@@ -235,25 +310,45 @@ export default function NotificationsScreen() {
 
   if (auth.isLoading) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.text}>Checking session...</Text>
+      <View style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <CityHeroHeader
+            title="Notifications"
+            height={164}
+            imageOffsetY={-10}
+            contentOffsetY={8}
+          />
+          <View style={[styles.contentInner, styles.statusBlock]}>
+            <Text style={styles.text}>Checking session...</Text>
+          </View>
+        </ScrollView>
       </View>
     );
   }
 
   if (!auth.isSignedIn) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.text}>Sign in to view your notifications.</Text>
-        <Link
-          href={{
-            pathname: "/auth/sign-in",
-            params: { redirectTo: "/(tabs)/notifications" }
-          }}
-          style={styles.authLink}
-        >
-          Sign In
-        </Link>
+      <View style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <CityHeroHeader
+            title="Notifications"
+            height={164}
+            imageOffsetY={-10}
+            contentOffsetY={8}
+          />
+          <View style={[styles.contentInner, styles.statusBlock]}>
+            <Text style={styles.text}>Sign in to view your notifications.</Text>
+            <Link
+              href={{
+                pathname: "/auth/sign-in",
+                params: { redirectTo: "/(tabs)/notifications" }
+              }}
+              style={styles.authLink}
+            >
+              Sign In
+            </Link>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -267,9 +362,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc"
   },
   container: {
-    padding: 20,
+    paddingBottom: 20,
     gap: 12,
     backgroundColor: "#f8fafc"
+  },
+  contentInner: {
+    paddingHorizontal: 20,
+    gap: 12
+  },
+  statusBlock: {
+    gap: 10
   },
   text: {
     fontSize: 15,
@@ -343,15 +445,27 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
+    borderColor: "#d6c8ad",
+    borderRadius: 14,
+    backgroundColor: "#f7f0df",
+    overflow: "hidden"
+  },
+  cardPaper: {
+    borderRadius: 14
+  },
+  cardPaperImage: {
+    borderRadius: 14
+  },
+  cardContentOverlay: {
+    backgroundColor: "rgba(255, 252, 245, 0.82)",
     padding: 12,
     gap: 6
   },
+  cardContentOverlayUnread: {
+    backgroundColor: "rgba(255, 250, 238, 0.90)"
+  },
   unreadCard: {
-    borderColor: "#0f172a",
-    backgroundColor: "#f8fafc"
+    borderColor: "#8a6b3e"
   },
   cardDisabled: {
     opacity: 0.6
@@ -411,11 +525,21 @@ const styles = StyleSheet.create({
   modalCard: {
     maxHeight: "78%",
     borderWidth: 1,
-    borderColor: "#0f172a",
+    borderColor: "#8a6b3e",
     borderRadius: 16,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#f7f0df",
+    overflow: "hidden"
+  },
+  modalPaper: {
+    borderRadius: 16
+  },
+  modalPaperImage: {
+    borderRadius: 16
+  },
+  modalPaperOverlay: {
     padding: 16,
-    gap: 8
+    gap: 8,
+    backgroundColor: "rgba(255, 252, 245, 0.86)"
   },
   detailHeader: {
     flexDirection: "row",
@@ -451,8 +575,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#64748b"
   },
-  detailBodyScroll: {
-    maxHeight: 320
+  detailContentScroll: {
+    maxHeight: 500
+  },
+  detailContentContainer: {
+    gap: 10,
+    paddingBottom: 6
+  },
+  detailImageList: {
+    gap: 10
+  },
+  detailImageFrame: {
+    width: "100%",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2d7bd",
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    overflow: "hidden"
+  },
+  detailImage: {
+    width: "100%"
   },
   detailBody: {
     fontSize: 15,

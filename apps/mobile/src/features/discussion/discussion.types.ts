@@ -5,7 +5,15 @@ export type DiscussionMode = "post" | "qa";
 
 export type ThreadPost = Pick<
   PostRow,
-  "id" | "author_id" | "title" | "body" | "comment_count" | "created_at" | "like_count"
+  | "id"
+  | "author_id"
+  | "university_id"
+  | "title"
+  | "body"
+  | "comment_count"
+  | "created_at"
+  | "like_count"
+  | "view_count"
 > & {
   accepted_answer_comment_id: number | null;
   images: ThreadPostImage[];

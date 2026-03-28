@@ -2,7 +2,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, type ImageSourcePropType, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useAuthSession } from "../../../src/features/auth/auth-session";
 import { supabase } from "../../../src/lib/supabase/client";
+import { TierMarker, resolveTierMarkerValue } from "../../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../../src/ui/theme";
 
 type UniversityRow = {
@@ -16,6 +18,7 @@ type UniversityPost = {
   id: number;
   authorId: string;
   authorName: string | null;
+  authorTier: string | null;
   title: string;
   body: string;
   abstract: string | null;
@@ -23,24 +26,32 @@ type UniversityPost = {
   degree: "bachelor" | "master" | "phd" | null;
   likeCount: number;
   commentCount: number;
+  viewCount: number;
   createdAt: string;
   section: { slug: string | null } | null;
   category: { slug: string | null } | null;
   images: { imageUrl: string; sortOrder: number | null }[];
 };
 
-type SectionFilter = "all" | "life" | "study" | "qa" | "notice";
-type LogoKey = "sjtu" | "ecnu" | "sisu" | "tongji" | "fudan" | "sufe";
-type CampusSlug = "minhang" | "xuhui" | "medical" | "putuo" | "hongkou" | "songjiang";
-
-const LOGO_ASSETS: Record<LogoKey, ImageSourcePropType> = {
-  sjtu: require("../../../assets/home/logos/sjtu.png"),
-  ecnu: require("../../../assets/home/logos/ecnu.png"),
-  sisu: require("../../../assets/home/logos/sisu.png"),
-  tongji: require("../../../assets/home/logos/tongji.png"),
-  fudan: require("../../../assets/home/logos/fudan.png"),
-  sufe: require("../../../assets/home/logos/sufe.png")
+type AlumniContent = {
+  title: string;
+  body: string;
+  isVisible: boolean;
 };
+
+type SectionFilter = "all" | "life" | "study" | "qa" | "notice" | "alumni";
+type CampusSlug = "minhang" | "xuhui" | "medical" | "putuo" | "hongkou" | "songjiang";
+type ViewerTier =
+  | "bronze"
+  | "silver"
+  | "gold"
+  | "platinum"
+  | "master"
+  | "grandmaster"
+  | "admin"
+  | "campus_master"
+  | "church_master";
+
 
 const UNIVERSITY_CHINESE_NAME_BY_SHORT: Record<string, string> = {
   sjtu: "上海交通大学",
@@ -150,6 +161,7 @@ function prefetchRemoteImages(urls: Array<string | null | undefined>) {
 }
 
 export default function UniversityDetailScreen() {
+  const auth = useAuthSession();
   const router = useRouter();
   const { universityId, section, campusSlug } = useLocalSearchParams<{
     universityId: string;
@@ -160,7 +172,7 @@ export default function UniversityDetailScreen() {
   const [posts, setPosts] = useState<UniversityPost[]>([]);
   const initialSectionFilter = useMemo<SectionFilter>(() => {
     const raw = Array.isArray(section) ? section[0] : section;
-    if (raw === "life" || raw === "study" || raw === "qa" || raw === "notice") {
+    if (raw === "life" || raw === "study" || raw === "qa" || raw === "notice" || raw === "alumni") {
       return raw;
     }
     return "all";
@@ -170,8 +182,11 @@ export default function UniversityDetailScreen() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [postsError, setPostsError] = useState<string | null>(null);
+  const [alumniContent, setAlumniContent] = useState<AlumniContent | null>(null);
+  const [isAlumniLoading, setIsAlumniLoading] = useState<boolean>(false);
+  const [alumniError, setAlumniError] = useState<string | null>(null);
   const [viewerUniversityId, setViewerUniversityId] = useState<string | null>(null);
-  const [viewerTier, setViewerTier] = useState<"bronze" | "silver" | "gold" | "platinum" | "master" | "grandmaster" | null>(null);
+  const [viewerTier, setViewerTier] = useState<ViewerTier | null>(null);
   const [isViewerUniversityLoading, setIsViewerUniversityLoading] = useState<boolean>(true);
 
   const resolvedUniversityId = useMemo(() => {
@@ -254,20 +269,6 @@ export default function UniversityDetailScreen() {
     return null;
   }, [isEcnuUniversity, isSisuUniversity, isSjtuUniversity, resolvedCampusSlug]);
 
-  const universityLogoSource = useMemo<ImageSourcePropType | null>(() => {
-    const shortNameKey = university?.shortName?.trim().toLowerCase() as LogoKey | undefined;
-    const slugKey = university?.slug?.trim().toLowerCase() as LogoKey | undefined;
-
-    if (shortNameKey && shortNameKey in LOGO_ASSETS) {
-      return LOGO_ASSETS[shortNameKey];
-    }
-    if (slugKey && slugKey in LOGO_ASSETS) {
-      return LOGO_ASSETS[slugKey];
-    }
-
-    return null;
-  }, [university?.shortName, university?.slug]);
-
   const currentUniversityBasePath = useMemo(() => {
     if (!resolvedUniversityId) {
       return "/universities";
@@ -305,19 +306,50 @@ export default function UniversityDetailScreen() {
     university?.id != null ? String(university.id) : null;
 
   const isBronzeViewer = viewerTier === "bronze";
+  const isViewerGrandmaster = viewerTier === "grandmaster" || viewerTier === "admin";
+  const canViewCampusNotice =
+    !isViewerUniversityLoading &&
+    !isBronzeViewer &&
+    (isViewerGrandmaster ||
+      (Boolean(viewerUniversityId) &&
+        Boolean(currentUniversityId) &&
+        viewerUniversityId === currentUniversityId));
 
   const noticeLocked =
     filter === "notice" &&
     !isViewerUniversityLoading &&
-    (
-      isBronzeViewer ||
-      !viewerUniversityId ||
-      !currentUniversityId ||
-      viewerUniversityId !== currentUniversityId
-    );
+    !canViewCampusNotice;
+  const canViewAlumni =
+    !isViewerUniversityLoading &&
+    Boolean(viewerUniversityId) &&
+    Boolean(currentUniversityId) &&
+    viewerUniversityId === currentUniversityId;
+  const alumniLocked =
+    filter === "alumni" &&
+    !isViewerUniversityLoading &&
+    !canViewAlumni;
 
   useEffect(() => {
     let cancelled = false;
+
+    const toViewerTier = (value: string | null | undefined): ViewerTier | null => {
+      const normalized = value?.trim().toLowerCase() ?? null;
+      if (
+        normalized === "bronze" ||
+        normalized === "silver" ||
+        normalized === "gold" ||
+        normalized === "platinum" ||
+        normalized === "master" ||
+        normalized === "grandmaster" ||
+        normalized === "admin" ||
+        normalized === "campus_master" ||
+        normalized === "church_master"
+      ) {
+        return normalized;
+      }
+
+      return null;
+    };
 
     async function loadViewerUniversity() {
       if (isCampusLanding) {
@@ -328,6 +360,24 @@ export default function UniversityDetailScreen() {
       }
 
       setIsViewerUniversityLoading(true);
+
+      const sessionProfile = auth.user?.profile;
+      if (sessionProfile) {
+        const sessionTier =
+          toViewerTier(sessionProfile.role) ??
+          toViewerTier(sessionProfile.tier);
+
+        if (!cancelled) {
+          setViewerUniversityId(
+            sessionProfile.verified_university_id != null
+              ? String(sessionProfile.verified_university_id)
+              : null
+          );
+          setViewerTier(sessionTier);
+          setIsViewerUniversityLoading(false);
+        }
+        return;
+      }
 
       const { data: authData, error: authError } = await supabase.auth.getUser();
 
@@ -342,11 +392,30 @@ export default function UniversityDetailScreen() {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
+      const withTierResult = await supabase
         .from("user_profiles")
-        .select("verified_university_id, role")
+        .select("verified_university_id, role, tier")
         .eq("id", authData.user.id)
         .maybeSingle();
+
+      let profile = withTierResult.data as
+        | {
+            verified_university_id: string | number | null;
+            role?: string | null;
+            tier?: string | null;
+          }
+        | null;
+      let profileError = withTierResult.error;
+
+      if (profileError && /column/i.test(profileError.message) && /tier/i.test(profileError.message)) {
+        const withoutTierResult = await supabase
+          .from("user_profiles")
+          .select("verified_university_id, role")
+          .eq("id", authData.user.id)
+          .maybeSingle();
+        profile = withoutTierResult.data;
+        profileError = withoutTierResult.error;
+      }
 
       if (cancelled) {
         return;
@@ -363,6 +432,7 @@ export default function UniversityDetailScreen() {
         | {
             verified_university_id: string | number | null;
             role?: string | null;
+            tier?: string | null;
           }
         | null;
 
@@ -371,16 +441,26 @@ export default function UniversityDetailScreen() {
           ? String(profileRow.verified_university_id)
           : null
       );
-      setViewerTier(
-        profileRow?.role === "bronze" ||
-        profileRow?.role === "silver" ||
-        profileRow?.role === "gold" ||
-        profileRow?.role === "platinum" ||
-        profileRow?.role === "master" ||
-        profileRow?.role === "grandmaster"
-          ? profileRow.role
-          : null
-      );
+      const metadata = authData.user.user_metadata as Record<string, unknown> | null;
+      const appMetadata = authData.user.app_metadata as Record<string, unknown> | null;
+      const metadataRole =
+        typeof metadata?.role === "string" ? metadata.role : null;
+      const metadataTier =
+        typeof metadata?.tier === "string" ? metadata.tier : null;
+      const appMetadataRole =
+        typeof appMetadata?.role === "string" ? appMetadata.role : null;
+      const appMetadataTier =
+        typeof appMetadata?.tier === "string" ? appMetadata.tier : null;
+
+      const normalizedTier: ViewerTier | null =
+        toViewerTier(profileRow?.role) ??
+        toViewerTier(profileRow?.tier) ??
+        toViewerTier(metadataRole) ??
+        toViewerTier(metadataTier) ??
+        toViewerTier(appMetadataRole) ??
+        toViewerTier(appMetadataTier);
+
+      setViewerTier(normalizedTier);
       setIsViewerUniversityLoading(false);
     }
 
@@ -389,7 +469,7 @@ export default function UniversityDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isCampusLanding]);
+  }, [auth.user?.profile, isCampusLanding]);
 
   useEffect(() => {
     let cancelled = false;
@@ -500,6 +580,20 @@ export default function UniversityDetailScreen() {
       return;
     }
 
+    if (filter === "alumni") {
+      setPosts([]);
+      setPostsError(null);
+      setIsLoading(false);
+      return;
+    }
+
+    if (filter === "notice" && (isViewerUniversityLoading || !canViewCampusNotice)) {
+      setPosts([]);
+      setPostsError(null);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setPostsError(null);
 
@@ -518,6 +612,7 @@ export default function UniversityDetailScreen() {
           degree,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections!inner ( code ),
           categories ( slug ),
@@ -560,6 +655,7 @@ export default function UniversityDetailScreen() {
           degree,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections!inner ( code ),
           categories ( slug ),
@@ -620,6 +716,7 @@ export default function UniversityDetailScreen() {
       degree?: string | null;
       like_count: number | null;
       comment_count: number | null;
+      view_count: number | null;
       created_at: string;
       sections: { code: string | null } | null;
       categories: { slug: string | null } | null;
@@ -641,6 +738,7 @@ export default function UniversityDetailScreen() {
       id: row.id,
       authorId: row.author_id,
       authorName: null,
+      authorTier: null,
       title: row.title,
       body: row.body,
       abstract: typeof row.abstract === "string" ? row.abstract : null,
@@ -652,6 +750,7 @@ export default function UniversityDetailScreen() {
           : null,
       likeCount: row.like_count ?? 0,
       commentCount: row.comment_count ?? 0,
+      viewCount: row.view_count ?? 0,
       createdAt: row.created_at,
       section: row.sections ? { slug: row.sections.code ?? null } : null,
       category: row.categories ? { slug: row.categories.slug ?? null } : null,
@@ -694,7 +793,8 @@ export default function UniversityDetailScreen() {
       .filter((row) => allowedIds.has(row.id))
       .map((row) => ({
         ...row,
-        authorName: null
+        authorName: null,
+        authorTier: null
       }));
 
     setPosts(initialPosts);
@@ -705,28 +805,60 @@ export default function UniversityDetailScreen() {
       return;
     }
 
-    const { data: profileData, error: profileError } = await supabase
+    const withTierProfilesResult = await supabase
       .from("user_profiles")
-      .select("id, display_name")
+      .select("id, display_name, tier, role")
       .in("id", authorIds);
+
+    let profileData = (withTierProfilesResult.data ?? null) as
+      | Array<{
+          id: string;
+          display_name?: string | null;
+          tier?: string | null;
+          role?: string | null;
+        }>
+      | null;
+    let profileError = withTierProfilesResult.error;
+
+    if (profileError && /column/i.test(profileError.message) && /tier/i.test(profileError.message)) {
+      const withoutTierProfilesResult = await supabase
+        .from("user_profiles")
+        .select("id, display_name, role")
+        .in("id", authorIds);
+      profileData = (withoutTierProfilesResult.data ?? null) as
+        | Array<{
+            id: string;
+            display_name?: string | null;
+            tier?: string | null;
+            role?: string | null;
+          }>
+        | null;
+      profileError = withoutTierProfilesResult.error;
+    }
 
     if (profileError) {
       return;
     }
 
     const displayNameMap = new Map<string, string | null>();
+    const tierMap = new Map<string, string | null>();
     (profileData ?? []).forEach((profile) => {
       displayNameMap.set(profile.id, profile.display_name ?? null);
+      const tierValue = resolveTierMarkerValue(profile.tier, profile.role);
+      tierMap.set(profile.id, tierValue);
     });
 
     setPosts((current) =>
       current.map((row) => ({
         ...row,
-        authorName: displayNameMap.get(row.authorId) ?? row.authorName ?? null
+        authorName: displayNameMap.get(row.authorId) ?? row.authorName ?? null,
+        authorTier: tierMap.get(row.authorId) ?? row.authorTier ?? null
       }))
     );
   }, [
+    canViewCampusNotice,
     filter,
+    isViewerUniversityLoading,
     postQueryLimit,
     university,
     isSjtuUniversity,
@@ -734,9 +866,67 @@ export default function UniversityDetailScreen() {
     isSjtuCampusLanding
   ]);
 
+  const loadAlumniContent = useCallback(async () => {
+    if (!university) {
+      return;
+    }
+
+    if (filter !== "alumni") {
+      return;
+    }
+
+    if (isViewerUniversityLoading || !canViewAlumni) {
+      setAlumniContent(null);
+      setAlumniError(null);
+      setIsAlumniLoading(false);
+      return;
+    }
+
+    setIsAlumniLoading(true);
+    setAlumniError(null);
+
+    const client = supabase as unknown as {
+      from: (table: string) => any;
+    };
+
+    const { data, error } = await client
+      .from("university_alumni_content")
+      .select("title, body, is_visible")
+      .eq("university_id", university.id)
+      .maybeSingle();
+
+    if (error) {
+      setAlumniContent(null);
+      setAlumniError(error.message);
+      setIsAlumniLoading(false);
+      return;
+    }
+
+    const title = typeof data?.title === "string" ? data.title.trim() : "";
+    const body = typeof data?.body === "string" ? data.body.trim() : "";
+    const isVisible = typeof data?.is_visible === "boolean" ? data.is_visible : true;
+
+    if (!data || !isVisible || (title.length === 0 && body.length === 0)) {
+      setAlumniContent(null);
+      setIsAlumniLoading(false);
+      return;
+    }
+
+    setAlumniContent({
+      title,
+      body,
+      isVisible
+    });
+    setIsAlumniLoading(false);
+  }, [canViewAlumni, filter, isViewerUniversityLoading, university]);
+
   useEffect(() => {
     void loadPosts();
   }, [loadPosts]);
+
+  useEffect(() => {
+    void loadAlumniContent();
+  }, [loadAlumniContent]);
 
   useEffect(() => {
     const urls = posts
@@ -978,9 +1168,7 @@ export default function UniversityDetailScreen() {
                       }}
                       style={styles.postAuthorButton}
                     >
-                      {universityLogoSource ? (
-                        <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
-                      ) : null}
+                      <TierMarker value={post.authorTier} size={18} />
                       <Text style={styles.postAuthorName} numberOfLines={1}>
                         {post.authorName ?? "Unknown"}
                       </Text>
@@ -993,6 +1181,10 @@ export default function UniversityDetailScreen() {
                       <View style={styles.postEngagementItem}>
                         <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
                         <Text style={styles.postMeta}>{post.commentCount}</Text>
+                      </View>
+                      <View style={styles.postEngagementItem}>
+                        <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+                        <Text style={styles.postMeta}>Views {post.viewCount}</Text>
                       </View>
                     </View>
                   </View>
@@ -1010,36 +1202,14 @@ export default function UniversityDetailScreen() {
           { value: "life", label: "School" },
           { value: "study", label: "Study" },
           { value: "qa", label: "Q&A" },
-          { value: "notice", label: "캠퍼스 공지" }
+          { value: "notice", label: "캠퍼스 공지" },
+          { value: "alumni", label: "Alumni" }
         ] as const).map((option) => (
           <Pressable
             key={option.value}
             onPress={() => {
               if (option.value === "notice") {
-                if (hasCampusLanding) {
-                  router.push({
-                    pathname: "/universities/[universityId]/campus/[campusSlug]",
-                    params: {
-                      universityId: resolvedUniversityId ?? "",
-                      campusSlug:
-                        isSjtuUniversity ? "minhang" :
-                        isEcnuUniversity ? "putuo" :
-                        isSisuUniversity ? "hongkou" :
-                        "minhang",
-                      section: "notice",
-                      returnTo: `/universities/${resolvedUniversityId ?? ""}`
-                    }
-                  });
-                  return;
-                }
-
-                router.push({
-                  pathname: "/universities/[universityId]",
-                  params: {
-                    universityId: resolvedUniversityId ?? "",
-                    section: "notice"
-                  }
-                });
+                setFilter("notice");
                 return;
               }
 
@@ -1063,12 +1233,19 @@ export default function UniversityDetailScreen() {
         </View>
       ) : null}
 
-      {!isCampusLanding && isLoading ? <Text style={styles.metaText}>Loading posts...</Text> : null}
+      {!isCampusLanding && filter !== "alumni" && isLoading ? <Text style={styles.metaText}>Loading posts...</Text> : null}
       {!isCampusLanding && filter === "notice" && isViewerUniversityLoading ? (
         <Text style={styles.metaText}>Checking announcement access...</Text>
       ) : null}
+      {!isCampusLanding && filter === "alumni" && isViewerUniversityLoading ? (
+        <Text style={styles.metaText}>Checking alumni page access...</Text>
+      ) : null}
+      {!isCampusLanding && filter === "alumni" && isAlumniLoading ? (
+        <Text style={styles.metaText}>Loading alumni content...</Text>
+      ) : null}
       {!isCampusLanding && errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
       {!isCampusLanding && postsError ? <Text style={styles.errorText}>{postsError}</Text> : null}
+      {!isCampusLanding && filter === "alumni" && alumniError ? <Text style={styles.errorText}>{alumniError}</Text> : null}
       {!isCampusLanding && filter === "notice" && noticeLocked ? (
         <View
           style={{
@@ -1093,14 +1270,69 @@ export default function UniversityDetailScreen() {
           </Text>
         </View>
       ) : null}
+      {!isCampusLanding && filter === "alumni" && alumniLocked ? (
+        <View
+          style={{
+            alignItems: "center",
+            justifyContent: "center",
+            paddingTop: 120,
+            paddingHorizontal: spacing.lg
+          }}
+        >
+          <Ionicons name="lock-closed" size={56} color={colors.textMuted} />
+          <Text
+            style={{
+              marginTop: spacing.md,
+              color: colors.textMuted,
+              fontSize: 15,
+              textAlign: "center"
+            }}
+          >
+            You can only view your university alumni page.
+          </Text>
+        </View>
+      ) : null}
       {!isLoading &&
       !isCampusLanding &&
       filter !== "study" &&
+      filter !== "alumni" &&
       !(filter === "notice" && (isViewerUniversityLoading || noticeLocked)) &&
       posts.length === 0 &&
       !errorMessage &&
       !postsError ? (
         <Text style={styles.metaText}>No posts yet.</Text>
+      ) : null}
+
+      {!isSjtuCampusLanding &&
+      filter === "alumni" &&
+      !isViewerUniversityLoading &&
+      !alumniLocked ? (
+        <View style={styles.alumniSheetFrame}>
+          <View style={styles.alumniSheetPaper}>
+            <View style={styles.alumniHeaderBand}>
+              <View style={styles.alumniHeaderRuleStrong} />
+              <View style={styles.alumniHeaderRuleSoft} />
+            </View>
+
+            {alumniContent ? (
+              <View style={styles.alumniBodyWrap}>
+                {alumniContent.title.length > 0 ? (
+                  <Text style={styles.alumniTitle}>{alumniContent.title}</Text>
+                ) : null}
+                <View style={styles.alumniParagraphRule} />
+                <Text style={styles.alumniBody}>{alumniContent.body}</Text>
+              </View>
+            ) : (
+              <View style={styles.alumniEmptyWrap}>
+                <Text style={styles.metaText}>No alumni letter published yet.</Text>
+              </View>
+            )}
+
+            <View style={styles.alumniFooterBand}>
+              <View style={styles.alumniFooterRule} />
+            </View>
+          </View>
+        </View>
       ) : null}
 
       {!isSjtuCampusLanding && filter === "study" ? (
@@ -1224,9 +1456,7 @@ export default function UniversityDetailScreen() {
                         }}
                         style={styles.postAuthorButton}
                       >
-                        {universityLogoSource ? (
-                          <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
-                        ) : null}
+                        <TierMarker value={post.authorTier} size={18} />
                         <Text style={styles.postAuthorName} numberOfLines={1}>
                           {post.authorName ?? "Unknown"}
                         </Text>
@@ -1239,6 +1469,10 @@ export default function UniversityDetailScreen() {
                         <View style={styles.postEngagementItem}>
                           <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
                           <Text style={styles.postMeta}>{post.commentCount}</Text>
+                        </View>
+                        <View style={styles.postEngagementItem}>
+                          <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+                          <Text style={styles.postMeta}>Views {post.viewCount}</Text>
                         </View>
                       </View>
                     </View>
@@ -1340,6 +1574,7 @@ export default function UniversityDetailScreen() {
                     pathname: "/qa/[qaId]",
                     params: {
                       qaId: String(post.id),
+                      universityId: resolvedUniversityId ?? "",
                       returnTo: currentUniversityReturnTo
                     }
                   }}
@@ -1366,9 +1601,7 @@ export default function UniversityDetailScreen() {
                         }}
                         style={styles.postAuthorButton}
                       >
-                        {universityLogoSource ? (
-                          <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
-                        ) : null}
+                        <TierMarker value={post.authorTier} size={18} />
                         <Text style={styles.postAuthorName} numberOfLines={1}>
                           {post.authorName ?? "Unknown"}
                         </Text>
@@ -1381,6 +1614,10 @@ export default function UniversityDetailScreen() {
                         <View style={styles.postEngagementItem}>
                           <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
                           <Text style={styles.postMeta}>{post.commentCount}</Text>
+                        </View>
+                        <View style={styles.postEngagementItem}>
+                          <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+                          <Text style={styles.postMeta}>Views {post.viewCount}</Text>
                         </View>
                       </View>
                     </View>
@@ -1395,6 +1632,8 @@ export default function UniversityDetailScreen() {
       {!isSjtuCampusLanding &&
       filter !== "study" &&
       filter !== "qa" &&
+      filter !== "alumni" &&
+      !(filter === "notice" && noticeLocked) &&
       posts.map((post) => {
         const previewText = getPreviewText(post.abstract, post.body);
         const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
@@ -1435,9 +1674,7 @@ export default function UniversityDetailScreen() {
                   }}
                   style={styles.postAuthorButton}
                 >
-                  {universityLogoSource ? (
-                    <Image source={universityLogoSource} style={styles.postAuthorLogo} resizeMode="contain" />
-                  ) : null}
+                  <TierMarker value={post.authorTier} size={18} />
                   <Text style={styles.postAuthorName} numberOfLines={1}>
                     {post.authorName ?? "Unknown"}
                   </Text>
@@ -1450,6 +1687,10 @@ export default function UniversityDetailScreen() {
                   <View style={styles.postEngagementItem}>
                     <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
                     <Text style={styles.postMeta}>{post.commentCount}</Text>
+                  </View>
+                  <View style={styles.postEngagementItem}>
+                    <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+                    <Text style={styles.postMeta}>Views {post.viewCount}</Text>
                   </View>
                 </View>
               </View>
@@ -1625,8 +1866,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     backgroundColor: colors.surface,
     shadowColor: "#0b1e38",
     shadowOpacity: 0.06,
@@ -1639,7 +1880,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent
   },
   filterChipLabel: {
-    fontSize: typography.caption,
+    fontSize: 11,
     fontWeight: "600",
     color: colors.textPrimary
   },
@@ -1651,6 +1892,78 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.textPrimary
   },
+  alumniSheetFrame: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: "#b29872",
+    backgroundColor: "#e6d8be",
+    padding: 4,
+    shadowColor: "#6b5538",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 4
+  },
+  alumniSheetPaper: {
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: "rgba(120,95,61,0.36)",
+    backgroundColor: "#f7efdf",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+    gap: spacing.sm
+  },
+  alumniHeaderBand: {
+    gap: 4,
+    paddingTop: 2,
+    paddingBottom: spacing.sm
+  },
+  alumniHeaderRuleStrong: {
+    height: 1,
+    backgroundColor: "rgba(114,88,56,0.42)"
+  },
+  alumniHeaderRuleSoft: {
+    height: 1,
+    backgroundColor: "rgba(143,117,84,0.22)"
+  },
+  alumniBodyWrap: {
+    gap: spacing.sm,
+    paddingTop: spacing.xs,
+    paddingHorizontal: spacing.xs
+  },
+  alumniTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#4a3722",
+    letterSpacing: 0.3,
+    lineHeight: 23
+  },
+  alumniParagraphRule: {
+    height: 1,
+    backgroundColor: "rgba(133,106,73,0.26)",
+    marginVertical: 2
+  },
+  alumniBody: {
+    fontSize: 13,
+    lineHeight: 21,
+    color: "#59452e"
+  },
+  alumniEmptyWrap: {
+    borderWidth: 1,
+    borderColor: "rgba(138,112,74,0.18)",
+    backgroundColor: "rgba(255,255,255,0.34)",
+    borderRadius: radius.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md
+  },
+  alumniFooterBand: {
+    paddingTop: spacing.md
+  },
+  alumniFooterRule: {
+    height: 1,
+    backgroundColor: "rgba(114,88,56,0.32)"
+  },
   campusRow: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -1659,27 +1972,17 @@ const styles = StyleSheet.create({
   },
   campusCard: {
     flex: 1,
-    minHeight: 72,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xs,
-    shadowColor: "#0b1e38",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2
+    justifyContent: "flex-start",
+    paddingHorizontal: spacing.xs
   },
   campusCardImagePlaceholder: {
     width: "100%",
     aspectRatio: 4 / 3,
     borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
+    borderWidth: 0,
+    borderColor: "transparent",
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.xs
@@ -1736,15 +2039,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: "rgba(255,255,255,0.92)",
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 3
   },
-  postAuthorLogo: {
-    width: 16,
-    height: 16
-  },
   postAuthorName: {
-    flex: 1,
+    flexShrink: 1,
     fontSize: typography.caption,
     color: colors.textSecondary
   },

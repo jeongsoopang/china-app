@@ -1,8 +1,10 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { ReportReasonCode } from "@foryou/supabase";
 import { REPORT_REASON_OPTIONS } from "../moderation/report.service";
 import type { DiscussionMode, ThreadComment } from "./discussion.types";
 import { colors, radius, spacing, typography } from "../../ui/theme";
+
+const BEST_ANSWER_CROWN = require("../../../assets/qa/best-answer-crown.png");
 
 type CommentTreeProps = {
   mode: DiscussionMode;
@@ -78,13 +80,23 @@ function CommentNode(props: {
     <View
       style={[
         styles.commentCard,
+        isAccepted && styles.acceptedCommentCard,
         depth > 0 && styles.replyCard,
         depth === 1 && styles.replyCardLevel1,
         depth > 1 && styles.replyCardLevel2
       ]}
     >
       <View style={styles.commentHeader}>
-        <Text style={styles.commentLabel}>{label}</Text>
+        <View style={styles.commentLabelWrap}>
+          <Text style={styles.commentLabel}>{label}</Text>
+          {isAccepted ? (
+            <Image
+              source={BEST_ANSWER_CROWN}
+              resizeMode="contain"
+              style={styles.acceptedCrown}
+            />
+          ) : null}
+        </View>
         <Text style={styles.commentMeta}>#{comment.id}</Text>
       </View>
 
@@ -126,7 +138,7 @@ function CommentNode(props: {
         !isAccepted &&
         !isAcceptingAnswer ? (
           <Pressable onPress={() => onAcceptBestAnswer(comment.id)} style={styles.actionButton}>
-            <Text style={styles.actionButtonLabel}>Accept</Text>
+            <Text style={styles.actionButtonLabel}>베스트 답변 선택</Text>
           </Pressable>
         ) : null}
       </View>
@@ -395,6 +407,15 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: spacing.xs
   },
+  acceptedCommentCard: {
+    borderColor: "#caa84f",
+    backgroundColor: "#fff8e9",
+    shadowColor: "#b08b38",
+    shadowOpacity: 0.14,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2
+  },
   replyCard: {
     borderColor: "#d4e2f2",
     backgroundColor: colors.surfaceMuted
@@ -409,6 +430,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center"
+  },
+  commentLabelWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  acceptedCrown: {
+    width: 16,
+    height: 16
   },
   commentMetaRow: {
     flexDirection: "row",

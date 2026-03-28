@@ -3,7 +3,6 @@ import { Link, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
-  type ImageSourcePropType,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 } from "react-native";
 import { useAuthSession } from "../../../src/features/auth/auth-session";
 import { supabase } from "../../../src/lib/supabase/client";
+import { TierMarker, normalizeTierForDisplay } from "../../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../../src/ui/theme";
 
 type PublicProfile = {
@@ -51,6 +51,9 @@ function getTierAccent(tierValue: string | null) {
   if (normalized === "gold") {
     return { borderColor: "#a87b12", labelColor: "#8f6810", valueColor: "#6f4f0c" };
   }
+  if (normalized === "emerald") {
+    return { borderColor: "#1f7a5a", labelColor: "#176148", valueColor: "#124d3a" };
+  }
   if (normalized === "platinum" || normalized === "diamond") {
     return { borderColor: "#355c9a", labelColor: "#2f538a", valueColor: "#233f69" };
   }
@@ -60,49 +63,15 @@ function getTierAccent(tierValue: string | null) {
   if (normalized === "grandmaster") {
     return { borderColor: "#8f1f1f", labelColor: "#7a1a1a", valueColor: "#5f1414" };
   }
+  if (normalized === "church_master") {
+    return { borderColor: "#1f7a4f", labelColor: "#18623f", valueColor: "#124d31" };
+  }
 
   return {
     borderColor: colors.border,
     labelColor: colors.textMuted,
     valueColor: colors.textPrimary
   };
-}
-
-function getVerifiedUniversityLogoSource(
-  university: VerifiedUniversitySummary | null
-): ImageSourcePropType | null {
-  const shortName = university?.shortName?.trim().toLowerCase() ?? "";
-  const name = university?.name?.trim().toLowerCase() ?? "";
-
-  if (shortName === "sjtu" || name.includes("jiao tong") || name.includes("교통")) {
-    return require("../../../assets/home/logos/sjtu.png");
-  }
-  if (
-    shortName === "ecnu" ||
-    name.includes("east china normal") ||
-    name.includes("화동사범") ||
-    name.includes("화사")
-  ) {
-    return require("../../../assets/home/logos/ecnu.png");
-  }
-  if (
-    shortName === "sisu" ||
-    name.includes("shanghai international studies") ||
-    name.includes("상해외대")
-  ) {
-    return require("../../../assets/home/logos/sisu.png");
-  }
-  if (shortName === "tongji" || name.includes("동지")) {
-    return require("../../../assets/home/logos/tongji.png");
-  }
-  if (shortName === "fudan" || name.includes("복단")) {
-    return require("../../../assets/home/logos/fudan.png");
-  }
-  if (shortName === "sufe" || name.includes("재경") || name.includes("finance and economics")) {
-    return require("../../../assets/home/logos/sufe.png");
-  }
-
-  return null;
 }
 
 function stripBodyPreview(body: string): string {
@@ -178,10 +147,7 @@ export default function UserProfileScreen() {
 
     return base.charAt(0).toUpperCase();
   }, [profile?.displayName]);
-
-  const verifiedUniversityLogoSource = useMemo(() => {
-    return getVerifiedUniversityLogoSource(verifiedUniversity);
-  }, [verifiedUniversity]);
+  const displayTier = normalizeTierForDisplay(profile?.tier ?? null);
 
   const userProfileReturnTo = useMemo(() => {
     if (!resolvedUserId) {
@@ -190,6 +156,42 @@ export default function UserProfileScreen() {
 
     return `/users/${resolvedUserId}`;
   }, [resolvedUserId]);
+
+  const loadFollowState = useCallback(async () => {
+    if (!resolvedUserId) {
+      return null;
+    }
+
+    const tableClient = supabase as unknown as {
+      from: (table: string) => {
+        select: (query: string, options?: Record<string, unknown>) => any;
+      };
+    };
+
+    const [{ count: followerTotal, error: followerError }, followRow] = await Promise.all([
+      tableClient
+        .from("follows")
+        .select("follower_id", { count: "exact", head: true })
+        .eq("following_id", resolvedUserId),
+      viewerId
+        ? tableClient
+            .from("follows")
+            .select("follower_id")
+            .eq("follower_id", viewerId)
+            .eq("following_id", resolvedUserId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null })
+    ]);
+
+    if (followerError) {
+      return null;
+    }
+
+    return {
+      followerCount: typeof followerTotal === "number" ? followerTotal : 0,
+      isFollowing: Boolean(followRow?.data)
+    };
+  }, [resolvedUserId, viewerId]);
 
   const loadUserProfile = useCallback(async () => {
     if (!resolvedUserId) {
@@ -238,10 +240,21 @@ export default function UserProfileScreen() {
         typeof profileRow.display_name === "string" && profileRow.display_name.trim().length > 0
           ? profileRow.display_name
           : "Unknown",
-      avatarUrl: pickFirstString(profileRow, ["avatar_url", "profile_image_url", "image_url"]),
+      avatarUrl: pickFirstString(profileRow, [
+        "avatar_url",
+        "profile_image_url",
+        "avatar_image_url",
+        "profile_avatar_url",
+        "avatar",
+        "image_url"
+      ]),
       profileBackgroundUrl: pickFirstString(profileRow, [
         "profile_background_url",
+        "profile_background_image_url",
+        "background_image_url",
         "background_url",
+        "profile_cover_url",
+        "cover_url",
         "cover_image_url"
       ]),
       verifiedUniversityId:
@@ -286,30 +299,16 @@ export default function UserProfileScreen() {
       setVerifiedUniversity(null);
     }
 
-    const [{ count: followerTotal, error: followerError }, followRow] = await Promise.all([
-      tableClient
-        .from("follows")
-        .select("follower_id", { count: "exact", head: true })
-        .eq("following_id", resolvedUserId),
-      viewerId
-        ? tableClient
-            .from("follows")
-            .select("follower_id")
-            .eq("follower_id", viewerId)
-            .eq("following_id", resolvedUserId)
-            .maybeSingle()
-        : Promise.resolve({ data: null, error: null })
-    ]);
-
-    if (!followerError) {
-      setFollowerCount(typeof followerTotal === "number" ? followerTotal : 0);
-      setIsFollowing(Boolean(followRow?.data));
+    const followState = await loadFollowState();
+    if (followState) {
+      setFollowerCount(followState.followerCount);
+      setIsFollowing(followState.isFollowing);
     }
 
     const allowed =
       !mappedProfile.isPrivateProfile ||
       (viewerId !== null && viewerId === resolvedUserId) ||
-      Boolean(followRow?.data);
+      Boolean(followState?.isFollowing);
 
     if (!allowed) {
       setPosts([]);
@@ -351,7 +350,7 @@ export default function UserProfileScreen() {
       }))
     );
     setIsLoading(false);
-  }, [resolvedUserId, viewerId]);
+  }, [loadFollowState, resolvedUserId, viewerId]);
 
   useEffect(() => {
     void loadUserProfile();
@@ -362,7 +361,14 @@ export default function UserProfileScreen() {
       return;
     }
 
+    const wasFollowing = isFollowing;
+    const nextIsFollowing = !wasFollowing;
+
     setErrorMessage(null);
+    setIsFollowing(nextIsFollowing);
+    setFollowerCount((current) =>
+      nextIsFollowing ? current + 1 : Math.max(0, current - 1)
+    );
     setIsSavingFollow(true);
 
     try {
@@ -381,7 +387,7 @@ export default function UserProfileScreen() {
         };
       };
 
-      if (isFollowing) {
+      if (wasFollowing) {
         const { error } = await tableClient
           .from("follows")
           .delete()
@@ -391,8 +397,6 @@ export default function UserProfileScreen() {
         if (error) {
           throw new Error(error.message);
         }
-        setIsFollowing(false);
-        setFollowerCount((current) => Math.max(0, current - 1));
       } else {
         const followsClient = tableClient.from("follows");
         const writeResult = followsClient.upsert
@@ -405,17 +409,29 @@ export default function UserProfileScreen() {
 
         if (error) {
           if (/duplicate key|already exists|unique/i.test(error.message)) {
-            setIsFollowing(true);
-            return;
+            // Keep optimistic state and reconcile below.
+          } else {
+            throw new Error(error.message);
           }
-          throw new Error(error.message);
         }
-        setIsFollowing(true);
-        setFollowerCount((current) => current + 1);
       }
 
-      void loadUserProfile();
+      const followState = await loadFollowState();
+      if (followState) {
+        setFollowerCount(followState.followerCount);
+        setIsFollowing(followState.isFollowing);
+      }
     } catch (error) {
+      const followState = await loadFollowState();
+      if (followState) {
+        setFollowerCount(followState.followerCount);
+        setIsFollowing(followState.isFollowing);
+      } else {
+        setIsFollowing(wasFollowing);
+        setFollowerCount((current) =>
+          wasFollowing ? current + 1 : Math.max(0, current - 1)
+        );
+      }
       const message = error instanceof Error ? error.message : "Follow request failed.";
       setErrorMessage(message);
     } finally {
@@ -480,13 +496,7 @@ export default function UserProfileScreen() {
               <View style={styles.profileHeroText}>
                 <View style={styles.identityTextCard}>
                   <View style={styles.displayNameRow}>
-                    {verifiedUniversityLogoSource ? (
-                      <Image
-                        source={verifiedUniversityLogoSource}
-                        style={styles.verifiedUniversityLogo}
-                        resizeMode="contain"
-                      />
-                    ) : null}
+                    <TierMarker value={displayTier} size={14} />
                     <Text style={styles.displayName} numberOfLines={1}>
                       {profile.displayName}
                     </Text>
@@ -496,13 +506,11 @@ export default function UserProfileScreen() {
             </View>
 
             <View style={styles.profileSummaryPrimaryRow}>
-              <TierSummaryCard value={profile.tier ?? "-"} />
+              <TierSummaryCard value={displayTier} />
               <SummaryCard
                 label="School"
                 value={verifiedUniversity?.shortName ?? verifiedUniversity?.name ?? "-"}
               />
-            </View>
-            <View style={styles.profileSummarySecondaryRow}>
               <SummaryCard label="Followers" value={String(followerCount)} />
               {!isOwnProfile ? (
                 <Pressable
@@ -527,7 +535,7 @@ export default function UserProfileScreen() {
                       isFollowing ? styles.followActionLabelActive : null
                     ]}
                   >
-                    {isSavingFollow ? "..." : isFollowing ? "following" : "click to follow"}
+                    {isSavingFollow ? "..." : isFollowing ? "Following" : "Follow"}
                   </Text>
                 </Pressable>
               ) : null}
@@ -591,7 +599,9 @@ export default function UserProfileScreen() {
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.summaryPill}>
-      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryLabel} numberOfLines={1}>
+        {label}
+      </Text>
       <Text style={styles.summaryValue} numberOfLines={1}>
         {value}
       </Text>
@@ -675,9 +685,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: "14%",
     left: "8%",
-    width: "56%",
-    minWidth: 182,
-    maxWidth: 220,
+    width: "70%",
+    minWidth: 224,
+    maxWidth: 260,
     gap: 6
   },
   profileHeroTop: {
@@ -725,10 +735,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4
   },
-  verifiedUniversityLogo: {
-    width: 14,
-    height: 14
-  },
   displayName: {
     fontSize: 14,
     fontWeight: "700",
@@ -736,7 +742,7 @@ const styles = StyleSheet.create({
   },
   profileSummaryPrimaryRow: {
     flexDirection: "row",
-    gap: 4,
+    gap: 3,
     alignSelf: "flex-start",
     marginTop: 3
   },
@@ -746,7 +752,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start"
   },
   summaryPill: {
-    width: 56,
+    width: 48,
     borderRadius: 10,
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
@@ -766,24 +772,24 @@ const styles = StyleSheet.create({
     color: colors.textPrimary
   },
   followActionCard: {
-    minWidth: 96,
+    minWidth: 68,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     backgroundColor: colors.surface,
     paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    gap: 4
+    gap: 3
   },
   followActionCardActive: {
     backgroundColor: colors.accent,
     borderColor: colors.accent
   },
   followActionLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
     color: colors.textPrimary
   },

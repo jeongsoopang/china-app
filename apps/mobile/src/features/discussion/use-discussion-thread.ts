@@ -191,7 +191,7 @@ export function useDiscussionThread(params: {
     Boolean(state.currentUserId) && state.currentUserId === state.post?.author_id;
 
   const canShowAcceptBestAnswer =
-    isQa && isQuestionAuthor && answerCount >= 3 && state.acceptedAnswerCommentId === null;
+    isQa && isQuestionAuthor;
 
   const bronzeTopLevelAnswerBlocked =
     isQa && state.currentUserTier === "bronze" && state.replyToCommentId === null;

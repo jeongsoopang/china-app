@@ -27,8 +27,11 @@ type RawAnnouncementRow = {
   title: string | null;
   outline: string | null;
   body: string | null;
+  image_urls?: string[] | null;
+  is_home_popup?: boolean | null;
   published_at: string | null;
   created_at: string | null;
+  updated_at?: string | null;
   is_published: boolean | null;
 };
 
@@ -37,8 +40,11 @@ export type AnnouncementDetail = {
   title: string;
   outline: string;
   body: string;
+  image_urls: string[];
   published_at: string | null;
   created_at: string;
+  updated_at: string | null;
+  is_home_popup: boolean;
 };
 
 function normalizeNumber(value: unknown, fallback = 0): number {
@@ -120,8 +126,13 @@ function mapAnnouncementRow(row: RawAnnouncementRow): AnnouncementDetail {
     title: row.title ?? "",
     outline: row.outline ?? "",
     body: row.body ?? "",
+    image_urls: Array.isArray(row.image_urls)
+      ? row.image_urls.filter((value): value is string => typeof value === "string" && value.length > 0)
+      : [],
     published_at: row.published_at,
-    created_at: row.created_at ?? ""
+    created_at: row.created_at ?? "",
+    updated_at: row.updated_at ?? null,
+    is_home_popup: Boolean(row.is_home_popup)
   };
 }
 
@@ -154,13 +165,42 @@ export async function fetchAnnouncementDetailById(
   }).from("announcements");
 
   const { data, error } = await announcementsClient
-    .select("id, title, outline, body, published_at, created_at, is_published")
+    .select(
+      "id, title, outline, body, image_urls, is_home_popup, published_at, created_at, updated_at, is_published"
+    )
     .eq("id", numericId)
     .eq("is_published", true)
     .single();
 
   if (error) {
     throw error;
+  }
+
+  return mapAnnouncementRow(data as unknown as RawAnnouncementRow);
+}
+
+export async function fetchLatestHomePopupAnnouncement(): Promise<AnnouncementDetail | null> {
+  const announcementsClient = (supabase as unknown as {
+    from: (table: string) => any;
+  }).from("announcements");
+
+  const { data, error } = await announcementsClient
+    .select(
+      "id, title, outline, body, image_urls, is_home_popup, published_at, created_at, updated_at, is_published"
+    )
+    .eq("is_published", true)
+    .eq("is_home_popup", true)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
   }
 
   return mapAnnouncementRow(data as unknown as RawAnnouncementRow);

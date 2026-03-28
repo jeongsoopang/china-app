@@ -7,7 +7,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
-  type ImageSourcePropType,
   Linking,
   Modal,
   Platform,
@@ -28,6 +27,8 @@ import {
 import { mapAuthError } from "../../src/features/auth/auth.service";
 import { useAuthSession } from "../../src/features/auth/auth-session";
 import { supabase } from "../../src/lib/supabase/client";
+import { CityHeroHeader } from "../../src/ui/city-hero-header";
+import { TierMarker, normalizeTierForDisplay } from "../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
 type VerifiedUniversitySummary = {
@@ -48,6 +49,7 @@ type MyPostPreview = {
   createdAt: string;
   likeCount: number;
   commentCount: number;
+  viewCount: number;
 };
 
 type SelectedProfileImage = {
@@ -59,6 +61,7 @@ type SelectedProfileImage = {
 };
 
 const PROFILE_IMAGES_BUCKET = "post-images";
+const PROFILE_IMAGE_CACHE_CONTROL_SECONDS = "31536000";
 const MOOD_CARD_BACKGROUND_ASPECT_RATIO = 1.1;
 const AVATAR_CROP_FRAME_WIDTH = 260;
 const AVATAR_CROP_FRAME_HEIGHT = 260;
@@ -68,6 +71,9 @@ const BACKGROUND_CROP_FRAME_HEIGHT = Math.round(
 );
 const PROFILE_CROP_MIN_ZOOM = 1;
 const PROFILE_CROP_MAX_ZOOM = 3.5;
+const AVATAR_UPLOAD_MAX_LONG_EDGE = 1080;
+const BACKGROUND_UPLOAD_MAX_LONG_EDGE = 1600;
+const SPECIAL_ROLE_TIERS = new Set(["campus_master", "church_master", "grandmaster"]);
 
 type CropTarget = "avatar" | "background";
 
@@ -213,6 +219,25 @@ function getCropRect(metrics: CropMetrics, offset: CropOffset) {
   };
 }
 
+function getResizeDimensionsForMaxLongEdge(params: {
+  width: number;
+  height: number;
+  maxLongEdge: number;
+}): { width: number; height: number } | null {
+  const { width, height, maxLongEdge } = params;
+  const longEdge = Math.max(width, height);
+
+  if (longEdge <= maxLongEdge) {
+    return null;
+  }
+
+  const scale = maxLongEdge / longEdge;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale))
+  };
+}
+
 function getUserNameFromSession(auth: ReturnType<typeof useAuthSession>): string {
   return (
     auth.user?.profile?.display_name ??
@@ -259,43 +284,6 @@ function formatDate(value: string): string {
   }
 
   return date.toLocaleDateString();
-}
-
-function getVerifiedUniversityLogoSource(
-  university: VerifiedUniversitySummary | null
-): ImageSourcePropType | null {
-  const shortName = university?.shortName?.trim().toLowerCase() ?? "";
-  const name = university?.name?.trim().toLowerCase() ?? "";
-
-  if (shortName === "sjtu" || name.includes("jiao tong") || name.includes("교통")) {
-    return require("../../assets/home/logos/sjtu.png");
-  }
-  if (
-    shortName === "ecnu" ||
-    name.includes("east china normal") ||
-    name.includes("화동사범") ||
-    name.includes("화사")
-  ) {
-    return require("../../assets/home/logos/ecnu.png");
-  }
-  if (
-    shortName === "sisu" ||
-    name.includes("shanghai international studies") ||
-    name.includes("상해외대")
-  ) {
-    return require("../../assets/home/logos/sisu.png");
-  }
-  if (shortName === "tongji" || name.includes("동지")) {
-    return require("../../assets/home/logos/tongji.png");
-  }
-  if (shortName === "fudan" || name.includes("복단")) {
-    return require("../../assets/home/logos/fudan.png");
-  }
-  if (shortName === "sufe" || name.includes("재경") || name.includes("finance and economics")) {
-    return require("../../assets/home/logos/sufe.png");
-  }
-
-  return null;
 }
 
 type BronzeQuota = {
@@ -382,6 +370,14 @@ function getTierAccent(tierValue: string) {
     };
   }
 
+  if (normalized === "emerald") {
+    return {
+      borderColor: "#1f7a5a",
+      labelColor: "#176148",
+      valueColor: "#124d3a"
+    };
+  }
+
   if (normalized === "platinum" || normalized === "diamond") {
     return {
       borderColor: "#355c9a",
@@ -406,6 +402,14 @@ function getTierAccent(tierValue: string) {
     };
   }
 
+  if (normalized === "church_master") {
+    return {
+      borderColor: "#1f7a4f",
+      labelColor: "#18623f",
+      valueColor: "#124d31"
+    };
+  }
+
   return {
     borderColor: colors.border,
     labelColor: colors.textMuted,
@@ -415,9 +419,10 @@ function getTierAccent(tierValue: string) {
 
 function TierSummaryCard({ value }: { value: string }) {
   const accent = getTierAccent(value);
+  const displayValue = value.replace(/_/g, " ");
 
   return (
-    <View style={[styles.summaryMiniCard, { borderColor: accent.borderColor }]}>
+    <View style={[styles.summaryMiniCard, styles.tierSummaryCard, { borderColor: accent.borderColor }]}>
       <Text
         style={[
           styles.summaryLabel,
@@ -431,12 +436,17 @@ function TierSummaryCard({ value }: { value: string }) {
       <Text
         style={[
           styles.summaryValue,
+          styles.tierSummaryValue,
           {
             color: accent.valueColor
           }
         ]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.86}
+        ellipsizeMode="tail"
       >
-        {value}
+        {displayValue}
       </Text>
     </View>
   );
@@ -540,6 +550,7 @@ export default function MeScreen() {
   const email = auth.user?.authUser.email ?? "-";
   const role = auth.user?.profile?.role ?? "-";
   const tier = auth.user?.profile?.tier ?? null;
+  const pointTier = auth.user?.profile?.point_tier ?? null;
   const points = typeof auth.user?.profile?.points === "number" ? auth.user.profile.points : 0;
   const verifiedSchoolEmail = auth.user?.profile?.verified_school_email ?? null;
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
@@ -551,18 +562,23 @@ export default function MeScreen() {
     metadataPrivateProfile;
 
   const effectiveTier = useMemo(() => {
+    const normalizedRole = role.trim().toLowerCase();
+    if (SPECIAL_ROLE_TIERS.has(normalizedRole)) {
+      return role;
+    }
+
+    if (pointTier) {
+      return pointTier;
+    }
+
     if (tier) {
       return tier;
     }
 
-    if (role && role !== "-") {
-      return role;
-    }
-
-    return "-";
-  }, [role, tier]);
-
-  const isBronzeTier = effectiveTier === "bronze";
+    return "bronze";
+  }, [pointTier, role, tier]);
+  const canonicalTier = normalizeTierForDisplay(effectiveTier);
+  const isBronzeTier = canonicalTier === "bronze";
 
   const loadBronzeQuota = useCallback(async () => {
     if (!authUserId || !isBronzeTier) {
@@ -719,7 +735,7 @@ export default function MeScreen() {
 
     const { data, error } = await supabase
       .from("posts")
-      .select("id, title, body, created_at, like_count, comment_count")
+      .select("id, title, body, created_at, like_count, comment_count, view_count")
       .eq("author_id", authUserId)
       .order("created_at", { ascending: false })
       .limit(3);
@@ -737,6 +753,7 @@ export default function MeScreen() {
       created_at: string;
       like_count: number | null;
       comment_count: number | null;
+      view_count: number | null;
     }>;
 
     setMyPosts(
@@ -746,7 +763,8 @@ export default function MeScreen() {
         body: row.body,
         createdAt: row.created_at,
         likeCount: row.like_count ?? 0,
-        commentCount: row.comment_count ?? 0
+        commentCount: row.comment_count ?? 0,
+        viewCount: row.view_count ?? 0
       }))
     );
     setIsLoadingMyPosts(false);
@@ -902,6 +920,7 @@ export default function MeScreen() {
           .from(PROFILE_IMAGES_BUCKET)
           .upload(storagePath, profileImageData, {
             contentType: selectedProfileImage.mimeType,
+            cacheControl: PROFILE_IMAGE_CACHE_CONTROL_SECONDS,
             upsert: false
           });
 
@@ -927,6 +946,7 @@ export default function MeScreen() {
           .from(PROFILE_IMAGES_BUCKET)
           .upload(storagePath, backgroundImageData, {
             contentType: selectedProfileBackgroundImage.mimeType,
+            cacheControl: PROFILE_IMAGE_CACHE_CONTROL_SECONDS,
             upsert: false
           });
 
@@ -1179,9 +1199,25 @@ export default function MeScreen() {
     try {
       const safeOffset = clampCropOffset(cropOffset, cropMetrics);
       const cropRect = getCropRect(cropMetrics, safeOffset);
+      const maxLongEdge =
+        cropTarget === "background" ? BACKGROUND_UPLOAD_MAX_LONG_EDGE : AVATAR_UPLOAD_MAX_LONG_EDGE;
+      const resize = getResizeDimensionsForMaxLongEdge({
+        width: cropRect.width,
+        height: cropRect.height,
+        maxLongEdge
+      });
+      const actions: Array<
+        | { crop: { originX: number; originY: number; width: number; height: number } }
+        | { resize: { width: number; height: number } }
+      > = [{ crop: cropRect }];
+
+      if (resize) {
+        actions.push({ resize });
+      }
+
       const result = await manipulateAsync(
         cropSourceImage.localUri,
-        [{ crop: cropRect }],
+        actions,
         { compress: 0.92, format: SaveFormat.JPEG }
       );
 
@@ -1218,8 +1254,15 @@ export default function MeScreen() {
   if (auth.isLoading) {
     return (
       <View style={styles.centeredContainer}>
-        <Text style={styles.heading}>Me</Text>
-        <Text style={styles.helperText}>Loading account state...</Text>
+        <CityHeroHeader
+          title="My"
+          height={164}
+          imageOffsetY={-10}
+          contentOffsetY={8}
+        />
+        <View style={styles.centeredBody}>
+          <Text style={styles.helperText}>Loading account state...</Text>
+        </View>
       </View>
     );
   }
@@ -1227,33 +1270,40 @@ export default function MeScreen() {
   if (!auth.isSignedIn || !auth.user) {
     return (
       <View style={styles.centeredContainer}>
-        <Text style={styles.heading}>Me</Text>
-        <Text style={styles.helperText}>
-          Sign in to view your account and access school verification.
-        </Text>
-        <Link
-          asChild
-          href={{
-            pathname: "/auth/sign-in",
-            params: { redirectTo: "/(tabs)/me" }
-          }}
-        >
-          <Pressable style={styles.primaryButton}>
-            <Text style={styles.primaryButtonLabel}>Sign In</Text>
-          </Pressable>
-        </Link>
-        <Link
-          asChild
-          href={{
-            pathname: "/auth/sign-up",
-            params: { redirectTo: "/(tabs)/me" }
-          }}
-        >
-          <Pressable style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonLabel}>Sign Up</Text>
-          </Pressable>
-        </Link>
-        {auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
+        <CityHeroHeader
+          title="My"
+          height={164}
+          imageOffsetY={-10}
+          contentOffsetY={8}
+        />
+        <View style={styles.centeredBody}>
+          <Text style={styles.helperText}>
+            Sign in to view your account and access school verification.
+          </Text>
+          <Link
+            asChild
+            href={{
+              pathname: "/auth/sign-in",
+              params: { redirectTo: "/(tabs)/me" }
+            }}
+          >
+            <Pressable style={styles.primaryButton}>
+              <Text style={styles.primaryButtonLabel}>Sign In</Text>
+            </Pressable>
+          </Link>
+          <Link
+            asChild
+            href={{
+              pathname: "/auth/sign-up",
+              params: { redirectTo: "/(tabs)/me" }
+            }}
+          >
+            <Pressable style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonLabel}>Sign Up</Text>
+            </Pressable>
+          </Link>
+          {auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
+        </View>
       </View>
     );
   }
@@ -1265,29 +1315,35 @@ export default function MeScreen() {
         verifiedUniversity?.name ??
         (verifiedUniversityId ? "Verified" : "Not linked");
 
-  const verifiedUniversityLogoSource = getVerifiedUniversityLogoSource(verifiedUniversity);
-
   return (
     <>
       <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.profileHeroStack}>
-          <View style={styles.profileBackgroundCard} pointerEvents="none">
-            {selectedProfileBackgroundImage?.localUri || profileBackgroundUrl ? (
-              <Image
-                source={{ uri: selectedProfileBackgroundImage?.localUri ?? profileBackgroundUrl ?? "" }}
-                style={styles.profileBackgroundImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={styles.profileBackgroundFallback}>
-                <View style={styles.profileBackgroundFallbackTone} />
-              </View>
-            )}
-          </View>
+        <CityHeroHeader
+          title="My"
+          height={164}
+          imageOffsetY={-10}
+          contentOffsetY={8}
+        />
 
-          <Pressable onPress={() => setIsSettingsOpen(true)} style={styles.settingsHeroButton}>
-            <Ionicons name="settings-outline" size={18} color={colors.textPrimary} />
-          </Pressable>
+        <View style={styles.pageBody}>
+          <View style={styles.profileHeroStack}>
+            <View style={styles.profileBackgroundCard} pointerEvents="none">
+              {selectedProfileBackgroundImage?.localUri || profileBackgroundUrl ? (
+                <Image
+                  source={{ uri: selectedProfileBackgroundImage?.localUri ?? profileBackgroundUrl ?? "" }}
+                  style={styles.profileBackgroundImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.profileBackgroundFallback}>
+                  <View style={styles.profileBackgroundFallbackTone} />
+                </View>
+              )}
+            </View>
+
+            <Pressable onPress={() => setIsSettingsOpen(true)} style={styles.settingsHeroButton}>
+              <Ionicons name="settings-outline" size={18} color={colors.textPrimary} />
+            </Pressable>
 
           <View style={styles.profileOverlayContent}>
             <View style={styles.profileHeroTop}>
@@ -1301,13 +1357,7 @@ export default function MeScreen() {
               <View style={styles.profileHeroText}>
                 <View style={styles.identityTextCard}>
                   <View style={styles.displayNameRow}>
-                    {verifiedUniversityLogoSource ? (
-                      <Image
-                        source={verifiedUniversityLogoSource}
-                        style={styles.verifiedUniversityLogo}
-                        resizeMode="contain"
-                      />
-                    ) : null}
+                    <TierMarker value={canonicalTier} size={28} />
                     <Text style={styles.displayName} numberOfLines={1}>
                       {displayName}
                     </Text>
@@ -1317,7 +1367,7 @@ export default function MeScreen() {
             </View>
 
             <View style={styles.profileSummaryPrimaryRow}>
-              <TierSummaryCard value={effectiveTier} />
+              <TierSummaryCard value={canonicalTier} />
               <SummaryCard label="Points" value={String(points)} />
               <SummaryCard label="School" value={schoolLabel} />
               <SummaryCard label="Followers" value={String(followerCount)} />
@@ -1329,8 +1379,8 @@ export default function MeScreen() {
                 </Text>
               </View>
             ) : null}
+            </View>
           </View>
-        </View>
 
         <View style={styles.infoCard}>
           <View style={styles.listHeaderRow}>
@@ -1396,6 +1446,16 @@ export default function MeScreen() {
                       <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
                       <Text style={styles.myPostDate}>{post.commentCount}</Text>
                     </View>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4
+                      }}
+                    >
+                      <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+                      <Text style={styles.myPostDate}>Views {post.viewCount}</Text>
+                    </View>
                   </View>
                 </Pressable>
               </Link>
@@ -1431,7 +1491,8 @@ export default function MeScreen() {
 
         {universityError ? <Text style={styles.errorText}>{universityError}</Text> : null}
         {localError ? <Text style={styles.errorText}>{localError}</Text> : null}
-        {!localError && auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
+          {!localError && auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
+        </View>
       </ScrollView>
 
       <Modal visible={isSettingsOpen} transparent animationType="fade" onRequestClose={() => setIsSettingsOpen(false)}>
@@ -1793,15 +1854,23 @@ function SummaryCard({ label, value, wide }: { label: string; value: string; wid
 
 const styles = StyleSheet.create({
   container: {
-    padding: spacing.lg,
-    gap: spacing.md,
+    paddingBottom: spacing.lg,
     backgroundColor: colors.background
+  },
+  pageBody: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    gap: spacing.md
   },
   centeredContainer: {
     flex: 1,
-    padding: spacing.lg,
+    paddingBottom: spacing.lg,
     gap: spacing.md,
     backgroundColor: colors.background
+  },
+  centeredBody: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.md
   },
   screenHeaderRow: {
     flexDirection: "row",
@@ -1930,6 +1999,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.80)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.92)",
+    marginTop: 6,
     paddingHorizontal: 8,
     paddingVertical: 5
   },
@@ -1937,10 +2007,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4
-  },
-  verifiedUniversityLogo: {
-    width: 14,
-    height: 14
   },
   displayName: {
     fontSize: 14,
@@ -1968,7 +2034,7 @@ const styles = StyleSheet.create({
     fontWeight: "600"
   },
   summaryPill: {
-    width: 60,
+    width: 72,
     borderRadius: 9,
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
@@ -1979,7 +2045,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   summaryPillWide: {
-    width: 76
+    width: 112
   },
   summaryMiniCard: {
     width: 50,
@@ -1991,14 +2057,21 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     justifyContent: "space-between"
   },
+  tierSummaryCard: {
+    width: 74,
+    paddingHorizontal: 6
+  },
   summaryLabel: {
-    fontSize: 8.5,
+    fontSize: 9,
     color: colors.textMuted
   },
   summaryValue: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontWeight: "700",
     color: colors.textPrimary
+  },
+  tierSummaryValue: {
+    fontSize: 10.5
   },
   followActionCard: {
     minWidth: 96,

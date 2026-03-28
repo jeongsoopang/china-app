@@ -6,10 +6,10 @@ const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/users", label: "Users" },
   { href: "/reports", label: "Reports" },
-  { href: "/moderation", label: "Moderation" },
   { href: "/announcements", label: "Announcements" },
-  { href: "/universities", label: "Universities" },
-  { href: "/audit", label: "Audit" }
+  { href: "/home-guide", label: "Home Guide" },
+  { href: "/alumni", label: "Alumni" },
+  { href: "/sponsor-page", label: "Sponsor Page" }
 ] as const;
 
 export default async function AdminSectionLayout({
@@ -27,7 +27,7 @@ export default async function AdminSectionLayout({
 
   return (
     <main>
-      <h1>ForYou Admin</h1>
+      <h1>LUCL Admin</h1>
       <nav aria-label="Admin Navigation">
         <ul>
           {links.map((link) => (

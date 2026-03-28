@@ -118,7 +118,7 @@ export default function QaDetailScreen() {
 
       {thread.canShowAcceptBestAnswer ? (
         <Text style={styles.helperText}>
-          You can accept one top-level answer after at least 3 answers are submitted.
+          질문 작성자는 베스트 답변을 선택하거나 변경할 수 있습니다.
         </Text>
       ) : null}
 

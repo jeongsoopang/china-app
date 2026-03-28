@@ -35,10 +35,12 @@ function toThreadPost(row: PostRow): ThreadPost {
   return {
     id: row.id,
     author_id: row.author_id,
+    university_id: row.university_id,
     title: row.title,
     body: row.body,
     comment_count: row.comment_count,
     like_count: row.like_count,
+    view_count: row.view_count,
     created_at: row.created_at,
     accepted_answer_comment_id: row.accepted_answer_comment_id,
     images: []
@@ -347,6 +349,88 @@ export async function togglePostLike(postId: number): Promise<ToggleLikeResult> 
   }
 
   return parseToggleLikeResult(attemptFallback.data);
+}
+
+export async function incrementPostViewCount(postId: number): Promise<number> {
+  const attemptPrimary = await supabase.rpc("increment_post_view_count", {
+    p_post_id: postId
+  });
+
+  const parseViewCount = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && /^\d+$/.test(value)) {
+      return Number(value);
+    }
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const candidates = [
+        record.view_count,
+        record.new_view_count,
+        record.increment_post_view_count,
+        record.count
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "number" && Number.isFinite(candidate)) {
+          return candidate;
+        }
+        if (typeof candidate === "string" && /^\d+$/.test(candidate)) {
+          return Number(candidate);
+        }
+      }
+    }
+    return null;
+  };
+
+  if (!attemptPrimary.error) {
+    const direct = parseViewCount(attemptPrimary.data);
+    if (direct !== null) {
+      return direct;
+    }
+
+    if (Array.isArray(attemptPrimary.data)) {
+      const first = parseViewCount(attemptPrimary.data[0]);
+      if (first !== null) {
+        return first;
+      }
+    }
+
+    return 0;
+  }
+
+  const message = attemptPrimary.error.message ?? "";
+  const shouldRetryWithAltParam =
+    message.includes("increment_post_view_count") ||
+    message.includes("p_post_id") ||
+    message.includes("does not exist");
+
+  if (!shouldRetryWithAltParam) {
+    throw new Error(attemptPrimary.error.message);
+  }
+
+  const attemptFallback = await supabase.rpc(
+    "increment_post_view_count",
+    { post_id: postId } as unknown as { p_post_id: number }
+  );
+
+  if (attemptFallback.error) {
+    throw new Error(attemptFallback.error.message);
+  }
+
+  const fallbackDirect = parseViewCount(attemptFallback.data);
+  if (fallbackDirect !== null) {
+    return fallbackDirect;
+  }
+
+  if (Array.isArray(attemptFallback.data)) {
+    const first = parseViewCount(attemptFallback.data[0]);
+    if (first !== null) {
+      return first;
+    }
+  }
+
+  return 0;
 }
 
 export async function toggleCommentLike(commentId: number): Promise<ToggleLikeResult> {

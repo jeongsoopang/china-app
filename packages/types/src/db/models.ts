@@ -7,6 +7,7 @@ export type SchoolVerificationRow =
   Database["public"]["Tables"]["user_school_verifications"]["Row"];
 export type SectionRow = Database["public"]["Tables"]["sections"]["Row"];
 export type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
+export type ChurchPageContentRow = Database["public"]["Tables"]["church_page_content"]["Row"];
 export type PostRow = Database["public"]["Tables"]["posts"]["Row"];
 export type PostImageRow = Database["public"]["Tables"]["post_images"]["Row"];
 export type CommentRow = Database["public"]["Tables"]["comments"]["Row"];

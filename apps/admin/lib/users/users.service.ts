@@ -81,7 +81,13 @@ export async function fetchAdminUsers(
     .limit(200);
 
   if (filters.role && filters.role !== "all") {
-    query = query.eq("role", filters.role);
+    if (filters.role === "diamond") {
+      query = query.in("role", ["diamond", "platinum"]);
+    } else if (filters.role === "grandmaster") {
+      query = query.in("role", ["grandmaster", "master"]);
+    } else {
+      query = query.eq("role", filters.role);
+    }
   }
 
   const userIdQuery = normalizeQuery(filters.userId);
@@ -176,7 +182,11 @@ const allowedRoles = new Set([
   "bronze",
   "silver",
   "gold",
+  "emerald",
+  "diamond",
   "platinum",
+  "church_master",
+  "campus_master",
   "master",
   "grandmaster"
 ]);
@@ -219,7 +229,35 @@ export async function updateAdminUser(input: AdminUserUpdateInput): Promise<void
     .maybeSingle();
 
   if (updateResult.error) {
-    throw new Error(errorMessageFromUnknown(updateResult.error, "Failed to update user."));
+    if (input.role === "diamond") {
+      const fallbackUpdateResult = await client
+        .from("user_profiles")
+        .update({
+          role: "platinum" as never
+        })
+        .eq("id", input.userId)
+        .select("id, role")
+        .maybeSingle();
+
+      if (fallbackUpdateResult.error) {
+        throw new Error(errorMessageFromUnknown(fallbackUpdateResult.error, "Failed to update user."));
+      }
+    } else if (input.role === "grandmaster") {
+      const fallbackUpdateResult = await client
+        .from("user_profiles")
+        .update({
+          role: "master" as never
+        })
+        .eq("id", input.userId)
+        .select("id, role")
+        .maybeSingle();
+
+      if (fallbackUpdateResult.error) {
+        throw new Error(errorMessageFromUnknown(fallbackUpdateResult.error, "Failed to update user."));
+      }
+    } else {
+      throw new Error(errorMessageFromUnknown(updateResult.error, "Failed to update user."));
+    }
   }
 
   const changedFields: string[] = [];

@@ -15,6 +15,7 @@ type SearchPost = {
   createdAt: string;
   likeCount: number;
   commentCount: number;
+  viewCount: number;
   sectionSlug: string | null;
   categorySlug: string | null;
 };
@@ -146,6 +147,7 @@ export default function UniversitySearchScreen() {
           abstract,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections ( code ),
           categories ( slug )
@@ -167,6 +169,7 @@ export default function UniversitySearchScreen() {
           body,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections ( code ),
           categories ( slug )
@@ -205,6 +208,7 @@ export default function UniversitySearchScreen() {
       abstract?: string | null;
       like_count: number | null;
       comment_count: number | null;
+      view_count: number | null;
       created_at: string;
       sections: { code: string | null } | null;
       categories: { slug: string | null } | null;
@@ -220,6 +224,7 @@ export default function UniversitySearchScreen() {
       createdAt: row.created_at,
       likeCount: row.like_count ?? 0,
       commentCount: row.comment_count ?? 0,
+      viewCount: row.view_count ?? 0,
       sectionSlug: row.sections?.code ?? null,
       categorySlug: row.categories?.slug ?? null
     }));
@@ -345,6 +350,10 @@ export default function UniversitySearchScreen() {
                   <View style={styles.resultEngagementItem}>
                     <Ionicons name="chatbubble-outline" size={13} color={colors.textMuted} />
                     <Text style={styles.resultMeta}>{post.commentCount}</Text>
+                  </View>
+                  <View style={styles.resultEngagementItem}>
+                    <Ionicons name="eye-outline" size={13} color={colors.textMuted} />
+                    <Text style={styles.resultMeta}>Views {post.viewCount}</Text>
                   </View>
                 </View>
               </Pressable>

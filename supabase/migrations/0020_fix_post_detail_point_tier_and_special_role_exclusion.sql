@@ -1,0 +1,217 @@
+alter table public.user_profiles
+  alter column point_tier drop not null;
+
+update public.user_profiles
+set points = 0,
+    point_tier = null
+where role in ('campus_master', 'church_master', 'grandmaster');
+
+create or replace function public.award_post_points(p_post_id integer)
+returns table (
+  awarded boolean,
+  awarded_points integer,
+  tier_at_award public.point_tier,
+  next_point_tier public.point_tier,
+  total_points integer,
+  is_qualified boolean,
+  image_count integer,
+  body_text_length integer,
+  message text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caller_id uuid := auth.uid();
+  v_author_id uuid;
+  v_section_code public.section_code;
+  v_post_body text;
+  v_body_plain text;
+  v_text_length integer := 0;
+  v_image_count integer := 0;
+  v_current_points integer := 0;
+  v_next_points integer := 0;
+  v_current_tier public.point_tier;
+  v_next_tier public.point_tier;
+  v_user_role public.user_role;
+  v_is_school_verified boolean := false;
+  v_verified_school_email text;
+  v_verified_university_id uuid;
+  v_is_verified_for_silver boolean := false;
+  v_awarded_points integer := 0;
+  v_is_qualified boolean := false;
+begin
+  if v_caller_id is null then
+    return query
+    select false, 0, null::public.point_tier, null::public.point_tier, 0, false, 0, 0, 'Authentication required.';
+    return;
+  end if;
+
+  select p.author_id, s.code, p.body
+    into v_author_id, v_section_code, v_post_body
+    from public.posts p
+    join public.sections s on s.id = p.section_id
+   where p.id = p_post_id;
+
+  if not found then
+    return query
+    select false, 0, null::public.point_tier, null::public.point_tier, 0, false, 0, 0, 'Post not found.';
+    return;
+  end if;
+
+  if v_author_id <> v_caller_id then
+    return query
+    select false, 0, null::public.point_tier, null::public.point_tier, 0, false, 0, 0, 'Only the author can award post points.';
+    return;
+  end if;
+
+  select
+    up.points,
+    up.point_tier,
+    up.role,
+    coalesce(up.is_school_verified, false),
+    up.verified_school_email,
+    up.verified_university_id
+    into
+      v_current_points,
+      v_current_tier,
+      v_user_role,
+      v_is_school_verified,
+      v_verified_school_email,
+      v_verified_university_id
+    from public.user_profiles up
+   where up.id = v_author_id
+   for update;
+
+  if not found then
+    return query
+    select false, 0, null::public.point_tier, null::public.point_tier, 0, false, 0, 0, 'Profile not found.';
+    return;
+  end if;
+
+  if v_user_role in ('campus_master', 'church_master', 'grandmaster') then
+    update public.user_profiles
+       set points = 0,
+           point_tier = null
+     where id = v_author_id;
+
+    return query
+    select false, 0, null::public.point_tier, null::public.point_tier, 0, false, 0, 0, 'Special roles are excluded from post points.';
+    return;
+  end if;
+
+  if exists (select 1 from public.post_point_awards where post_id = p_post_id) then
+    return query
+    select false, 0, v_current_tier, v_current_tier, coalesce(v_current_points, 0), false, 0, 0, 'Post points already awarded.';
+    return;
+  end if;
+
+  if v_section_code not in ('life', 'study', 'qa', 'fun') then
+    return query
+    select false, 0, v_current_tier, v_current_tier, coalesce(v_current_points, 0), false, 0, 0, 'Section is not eligible for post points.';
+    return;
+  end if;
+
+  if v_current_tier is null then
+    v_is_verified_for_silver :=
+      v_is_school_verified
+      or (
+        v_verified_school_email is not null
+        and lower(v_verified_school_email) like '%.edu.cn'
+        and v_verified_university_id is not null
+      );
+
+    v_current_tier := case
+      when coalesce(v_current_points, 0) >= 3000 then 'diamond'::public.point_tier
+      when coalesce(v_current_points, 0) >= 1500 then 'emerald'::public.point_tier
+      when coalesce(v_current_points, 0) >= 500 then 'gold'::public.point_tier
+      when v_is_verified_for_silver then 'silver'::public.point_tier
+      else 'bronze'::public.point_tier
+    end;
+  end if;
+
+  select count(*)
+    into v_image_count
+    from public.post_images pi
+   where pi.post_id = p_post_id;
+
+  v_body_plain := regexp_replace(coalesce(v_post_body, ''), '<img\\s+[^>]*>', ' ', 'gi');
+  v_body_plain := regexp_replace(v_body_plain, '<[^>]+>', ' ', 'g');
+  v_body_plain := regexp_replace(v_body_plain, '\s+', ' ', 'g');
+  v_text_length := char_length(trim(v_body_plain));
+
+  if v_current_tier = 'silver' then
+    v_is_qualified := v_image_count >= 1 and v_text_length >= 50;
+    v_awarded_points := case when v_is_qualified then 100 else 50 end;
+  elsif v_current_tier = 'gold' then
+    v_is_qualified := v_image_count >= 2 and v_text_length >= 40;
+    v_awarded_points := case when v_is_qualified then 150 else 50 end;
+  elsif v_current_tier = 'emerald' then
+    v_is_qualified := v_image_count >= 2 and v_text_length >= 40;
+    v_awarded_points := case when v_is_qualified then 200 else 50 end;
+  elsif v_current_tier = 'diamond' then
+    v_is_qualified := v_image_count >= 2 and v_text_length >= 40;
+    v_awarded_points := case when v_is_qualified then 250 else 50 end;
+  else
+    v_is_qualified := false;
+    v_awarded_points := 0;
+  end if;
+
+  insert into public.post_point_awards (
+    post_id,
+    user_id,
+    section_code,
+    tier_at_award,
+    is_qualified,
+    body_text_length,
+    image_count,
+    awarded_points
+  )
+  values (
+    p_post_id,
+    v_author_id,
+    v_section_code,
+    v_current_tier,
+    v_is_qualified,
+    v_text_length,
+    v_image_count,
+    v_awarded_points
+  )
+  on conflict (post_id) do nothing;
+
+  if not found then
+    return query
+    select false, 0, v_current_tier, v_current_tier, v_current_points, false, v_image_count, v_text_length, 'Post points already awarded.';
+    return;
+  end if;
+
+  v_next_points := v_current_points + v_awarded_points;
+
+  v_is_verified_for_silver :=
+    v_is_school_verified
+    or (
+      v_verified_school_email is not null
+      and lower(v_verified_school_email) like '%.edu.cn'
+      and v_verified_university_id is not null
+    );
+
+  v_next_tier := case
+    when v_next_points >= 3000 then 'diamond'::public.point_tier
+    when v_next_points >= 1500 then 'emerald'::public.point_tier
+    when v_next_points >= 500 then 'gold'::public.point_tier
+    when v_is_verified_for_silver then 'silver'::public.point_tier
+    else 'bronze'::public.point_tier
+  end;
+
+  update public.user_profiles up
+     set points = v_next_points,
+         point_tier = v_next_tier
+   where up.id = v_author_id;
+
+  return query
+  select true, v_awarded_points, v_current_tier, v_next_tier, v_next_points, v_is_qualified, v_image_count, v_text_length, 'Post points awarded.';
+end;
+$$;
+
+grant execute on function public.award_post_points(integer) to authenticated;

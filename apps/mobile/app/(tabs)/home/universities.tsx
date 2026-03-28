@@ -1,0 +1,641 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Image,
+  type ImageSourcePropType,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { supabase } from "../../../src/lib/supabase/client";
+import { CityHeroHeader } from "../../../src/ui/city-hero-header";
+import { colors, radius, spacing, typography } from "../../../src/ui/theme";
+
+type SchoolKey = "sjtu" | "fudan" | "tongji" | "sufe" | "sisu" | "ecnu";
+
+type SchoolCardItem = {
+  key: SchoolKey;
+  label: string;
+  slug: string;
+  logo: ImageSourcePropType;
+  portrait: ImageSourcePropType;
+  cardTone: string;
+  chineseName: string;
+  universityId: string | null;
+  userCount: number;
+};
+
+type RankedPost = {
+  id: number;
+  title: string;
+  body: string;
+  likeCount: number;
+  commentCount: number;
+  viewCount: number;
+  createdAt: string;
+  universityShortName: string | null;
+  universityName: string | null;
+};
+
+const BASE_SCHOOL_ITEMS: Array<Omit<SchoolCardItem, "universityId" | "userCount">> = [
+  {
+    key: "sjtu",
+    label: "SJTU",
+    slug: "sjtu",
+    logo: require("../../../assets/home/logos/sjtu.png"),
+    portrait: require("../../../assets/universities/portraits/sjtu-circle.png"),
+    cardTone: "#e9f1ff",
+    chineseName: "上海交通大学"
+  },
+  {
+    key: "fudan",
+    label: "Fudan",
+    slug: "fudan",
+    logo: require("../../../assets/home/logos/fudan.png"),
+    portrait: require("../../../assets/universities/portraits/fudan-circle.png"),
+    cardTone: "#f2ebff",
+    chineseName: "复旦大学"
+  },
+  {
+    key: "tongji",
+    label: "Tongji",
+    slug: "tongji",
+    logo: require("../../../assets/home/logos/tongji.png"),
+    portrait: require("../../../assets/universities/portraits/tongji-circle.png"),
+    cardTone: "#e8f5f7",
+    chineseName: "同济大学"
+  },
+  {
+    key: "sufe",
+    label: "SUFE",
+    slug: "sufe",
+    logo: require("../../../assets/home/logos/sufe.png"),
+    portrait: require("../../../assets/universities/portraits/sufe-circle.png"),
+    cardTone: "#f4efe9",
+    chineseName: "上海财经大学"
+  },
+  {
+    key: "sisu",
+    label: "SISU",
+    slug: "sisu",
+    logo: require("../../../assets/home/logos/sisu.png"),
+    portrait: require("../../../assets/universities/portraits/sisu-circle.png"),
+    cardTone: "#eaf4ef",
+    chineseName: "上海外国语大学"
+  },
+  {
+    key: "ecnu",
+    label: "ECNU",
+    slug: "ecnu",
+    logo: require("../../../assets/home/logos/ecnu.png"),
+    portrait: require("../../../assets/universities/portraits/ecnu-circle.png"),
+    cardTone: "#edf0fa",
+    chineseName: "华东师范大学"
+  }
+];
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString();
+}
+
+function getPreviewText(body: string): string {
+  if (!body) {
+    return "";
+  }
+
+  const text = body
+    .replace(/<img\s+[^>]*>/gi, " ")
+    .replace(/<\/?p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+export default function UniversitiesOverviewScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
+  const insets = useSafeAreaInsets();
+  const cardScrollRef = useRef<ScrollView>(null);
+  const { width } = useWindowDimensions();
+  const rawReturnTo = params.returnTo;
+  const returnTo = Array.isArray(rawReturnTo) ? rawReturnTo[0] : rawReturnTo;
+
+  const [schoolItems, setSchoolItems] = useState<SchoolCardItem[]>(
+    BASE_SCHOOL_ITEMS.map((item) => ({
+      ...item,
+      universityId: null,
+      userCount: 0
+    }))
+  );
+  const [rankedPosts, setRankedPosts] = useState<RankedPost[]>([]);
+  const [rankedPostsError, setRankedPostsError] = useState<string | null>(null);
+  const [isLoadingRankedPosts, setIsLoadingRankedPosts] = useState<boolean>(true);
+
+  const cardWidth = Math.min(Math.max(width - 180, 180), 220);
+  const cardGap = spacing.md;
+  const snapStep = cardWidth + cardGap;
+  const sidePadding = Math.max((width - cardWidth) / 2, spacing.lg);
+
+  const indexBySlug = useMemo(() => {
+    const map = new Map<string, number>();
+    schoolItems.forEach((item, index) => {
+      map.set(item.slug, index);
+    });
+    return map;
+  }, [schoolItems]);
+
+  const loadData = useCallback(async () => {
+    setIsLoadingRankedPosts(true);
+    setRankedPostsError(null);
+
+    const { data: universitiesData, error: universitiesError } = await supabase
+      .from("universities")
+      .select("id, slug, name_ko, short_name")
+      .in(
+        "slug",
+        BASE_SCHOOL_ITEMS.map((item) => item.slug)
+      );
+
+    if (universitiesError) {
+      setRankedPostsError(universitiesError.message);
+      setIsLoadingRankedPosts(false);
+      return;
+    }
+
+    const universityRows = (universitiesData ?? []) as unknown as Array<{
+      id: string | number;
+      slug: string | null;
+      name_ko: string | null;
+      short_name: string | null;
+    }>;
+
+    const universityBySlug = new Map<string, { id: string; nameKo: string | null; shortName: string | null }>();
+    universityRows.forEach((row) => {
+      if (!row.slug) {
+        return;
+      }
+      universityBySlug.set(row.slug, {
+        id: String(row.id),
+        nameKo: row.name_ko ?? null,
+        shortName: row.short_name ?? null
+      });
+    });
+
+    const universityIds = universityRows.map((row) => String(row.id));
+
+    let countByUniversityId = new Map<string, number>();
+    if (universityIds.length > 0) {
+      const { data: profileRows, error: profilesError } = await supabase
+        .from("user_profiles")
+        .select("verified_university_id")
+        .in("verified_university_id", universityIds);
+
+      if (!profilesError) {
+        countByUniversityId = (profileRows ?? []).reduce((acc, row) => {
+          const id = row.verified_university_id != null ? String(row.verified_university_id) : null;
+          if (!id) {
+            return acc;
+          }
+          acc.set(id, (acc.get(id) ?? 0) + 1);
+          return acc;
+        }, new Map<string, number>());
+      }
+    }
+
+    setSchoolItems(
+      BASE_SCHOOL_ITEMS.map((item) => {
+        const linked = universityBySlug.get(item.slug);
+        const userCount = linked ? countByUniversityId.get(linked.id) ?? 0 : 0;
+
+        return {
+          ...item,
+          chineseName: linked?.nameKo ?? item.chineseName,
+          label: linked?.shortName ?? item.label,
+          universityId: linked?.id ?? null,
+          userCount
+        };
+      })
+    );
+
+    if (universityIds.length === 0) {
+      setRankedPosts([]);
+      setIsLoadingRankedPosts(false);
+      return;
+    }
+
+    const attemptWithMetadata = async () => {
+      return supabase
+        .from("posts")
+        .select(
+          `
+          id,
+          title,
+          body,
+          abstract,
+          like_count,
+          comment_count,
+          view_count,
+          created_at,
+          university_id,
+          universities ( name_ko, short_name )
+        `
+        )
+        .in("university_id", universityIds)
+        .order("created_at", { ascending: false })
+        .limit(80);
+    };
+
+    const attemptWithoutMetadata = async () => {
+      return supabase
+        .from("posts")
+        .select(
+          `
+          id,
+          title,
+          body,
+          like_count,
+          comment_count,
+          view_count,
+          created_at,
+          university_id,
+          universities ( name_ko, short_name )
+        `
+        )
+        .in("university_id", universityIds)
+        .order("created_at", { ascending: false })
+        .limit(80);
+    };
+
+    let postData: unknown = null;
+    let postError: { message: string } | null = null;
+
+    const withMetadata = await attemptWithMetadata();
+    postData = withMetadata.data;
+    postError = withMetadata.error ? { message: withMetadata.error.message } : null;
+
+    if (postError && /column/i.test(postError.message) && /abstract/i.test(postError.message)) {
+      const withoutMetadata = await attemptWithoutMetadata();
+      postData = withoutMetadata.data;
+      postError = withoutMetadata.error ? { message: withoutMetadata.error.message } : null;
+    }
+
+    if (postError) {
+      setRankedPostsError(postError.message);
+      setRankedPosts([]);
+      setIsLoadingRankedPosts(false);
+      return;
+    }
+
+    const mappedPosts = ((postData ?? []) as Array<{
+      id: number;
+      title: string;
+      body: string;
+      like_count: number | null;
+      comment_count: number | null;
+      view_count: number | null;
+      created_at: string;
+      universities: { name_ko: string | null; short_name: string | null } | null;
+    }>).map((row) => ({
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      likeCount: row.like_count ?? 0,
+      commentCount: row.comment_count ?? 0,
+      viewCount: row.view_count ?? 0,
+      createdAt: row.created_at,
+      universityShortName: row.universities?.short_name ?? null,
+      universityName: row.universities?.name_ko ?? null
+    }));
+
+    const topRanked = mappedPosts
+      .sort((a, b) => {
+        const aScore = a.likeCount * 3 + a.commentCount * 2;
+        const bScore = b.likeCount * 3 + b.commentCount * 2;
+        if (bScore !== aScore) {
+          return bScore - aScore;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      })
+      .slice(0, 3);
+
+    setRankedPosts(topRanked);
+    setIsLoadingRankedPosts(false);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData])
+  );
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.heroWrap}>
+        <CityHeroHeader
+          title="Universities"
+          height={164}
+          imageOffsetY={-10}
+          contentOffsetY={8}
+          style={styles.heroFullBleed}
+          contentStyle={styles.heroContentCentered}
+        />
+
+        <Pressable
+          onPress={() => {
+            if (returnTo) {
+              router.replace(returnTo as never);
+              return;
+            }
+
+            if (router.canGoBack()) {
+              router.back();
+              return;
+            }
+
+            router.replace("/(tabs)" as never);
+          }}
+          style={[styles.heroBackButton, { top: Math.max(insets.top + 6, spacing.md) }]}
+          hitSlop={8}
+        >
+          <Ionicons name="chevron-back" size={20} color="#f8fafc" />
+          <Text style={styles.heroBackButtonLabel}>Back</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.logoRow}>
+        {schoolItems.map((school) => (
+          <Pressable
+            key={school.slug}
+            onPress={() => {
+              const target = indexBySlug.get(school.slug) ?? 0;
+              cardScrollRef.current?.scrollTo({
+                x: target * snapStep,
+                y: 0,
+                animated: true
+              });
+            }}
+            style={styles.logoButton}
+          >
+            <Image source={school.logo} style={styles.logoImage} resizeMode="contain" />
+          </Pressable>
+        ))}
+      </View>
+
+      <ScrollView
+        ref={cardScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        decelerationRate="fast"
+        snapToInterval={snapStep}
+        snapToAlignment="start"
+        contentContainerStyle={{
+          paddingHorizontal: sidePadding,
+          gap: cardGap
+        }}
+      >
+        {schoolItems.map((school) => (
+          <Pressable
+            key={school.slug}
+            onPress={() =>
+              router.push({
+                pathname: "/universities/[universityId]",
+                params: {
+                  universityId: school.slug,
+                  returnTo: "/home/universities"
+                }
+              })
+            }
+            style={[
+              styles.schoolCard,
+              {
+                width: cardWidth
+              }
+            ]}
+          >
+            <Image source={school.portrait} style={styles.schoolCardPortrait} resizeMode="contain" />
+            <Text style={styles.schoolCardMeta}>Registered users: {school.userCount}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <View style={styles.rankedSection}>
+        <Text style={styles.rankedTitle}>Ranked Posts</Text>
+        {isLoadingRankedPosts ? <Text style={styles.metaText}>Loading ranked posts...</Text> : null}
+        {rankedPostsError ? <Text style={styles.errorText}>{rankedPostsError}</Text> : null}
+        {!isLoadingRankedPosts && rankedPosts.length === 0 && !rankedPostsError ? (
+          <Text style={styles.metaText}>No ranked posts yet.</Text>
+        ) : null}
+
+        <View style={styles.rankedList}>
+          {rankedPosts.map((post, index) => (
+            <Pressable
+              key={post.id}
+              onPress={() =>
+                router.push({
+                  pathname: "/posts/[postId]",
+                  params: {
+                    postId: String(post.id),
+                    returnTo: "/home/universities"
+                  }
+                })
+              }
+              style={styles.rankedCard}
+            >
+              <View style={styles.rankedHeaderRow}>
+                <Text style={styles.rankBadge}>#{index + 1}</Text>
+                <Text style={styles.rankedUniversity} numberOfLines={1}>
+                  {post.universityShortName ?? post.universityName ?? "University"}
+                </Text>
+              </View>
+              <Text style={styles.rankedPostTitle} numberOfLines={2}>
+                {post.title}
+              </Text>
+              <Text style={styles.rankedPostPreview} numberOfLines={2}>
+                {getPreviewText(post.body)}
+              </Text>
+              <View style={styles.rankedMetaRow}>
+                <Text style={styles.metaText}>{formatDate(post.createdAt)}</Text>
+                <View style={styles.rankedMetaInline}>
+                  <Ionicons name="heart-outline" size={13} color={colors.textMuted} />
+                  <Text style={styles.metaText}>{post.likeCount}</Text>
+                </View>
+                <View style={styles.rankedMetaInline}>
+                  <Ionicons name="chatbubble-outline" size={13} color={colors.textMuted} />
+                  <Text style={styles.metaText}>{post.commentCount}</Text>
+                </View>
+                <View style={styles.rankedMetaInline}>
+                  <Ionicons name="eye-outline" size={13} color={colors.textMuted} />
+                  <Text style={styles.metaText}>Views {post.viewCount}</Text>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+    backgroundColor: colors.background
+  },
+  heroFullBleed: {
+    marginHorizontal: 0
+  },
+  heroWrap: {
+    position: "relative"
+  },
+  heroContentCentered: {
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  heroBackButton: {
+    position: "absolute",
+    left: spacing.md,
+    zIndex: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(15,31,54,0.56)",
+    borderWidth: 1,
+    borderColor: "rgba(248,250,252,0.36)"
+  },
+  heroBackButtonLabel: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: "#f8fafc"
+  },
+  logoRow: {
+    marginHorizontal: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10
+  },
+  logoButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderWidth: 1,
+    borderColor: "rgba(170,192,220,0.74)",
+    shadowColor: "#0f1f36",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2
+  },
+  logoImage: {
+    width: 30,
+    height: 30
+  },
+  schoolCard: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+
+
+
+
+  schoolCardPortrait: {
+    width: 240,
+    height: 240,
+    marginBottom: 10,
+    alignSelf: "center"
+  },
+  schoolCardMeta: {
+    marginTop: 2,
+    fontSize: typography.caption,
+    color: colors.textMuted,
+    textAlign: "center"
+  },
+  rankedSection: {
+    marginHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    gap: spacing.sm
+  },
+  rankedTitle: {
+    fontSize: typography.subtitle,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  rankedList: {
+    gap: spacing.sm
+  },
+  rankedCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    padding: spacing.sm,
+    gap: 6
+  },
+  rankedHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  rankBadge: {
+    fontSize: typography.bodySmall,
+    fontWeight: "800",
+    color: colors.accent
+  },
+  rankedUniversity: {
+    flex: 1,
+    fontSize: typography.caption,
+    color: colors.textMuted
+  },
+  rankedPostTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  rankedPostPreview: {
+    fontSize: typography.bodySmall,
+    color: colors.textSecondary
+  },
+  rankedMetaRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    alignItems: "center",
+    flexWrap: "wrap"
+  },
+  rankedMetaInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4
+  },
+  metaText: {
+    fontSize: typography.caption,
+    color: colors.textMuted
+  },
+  errorText: {
+    fontSize: typography.bodySmall,
+    color: colors.error
+  }
+});

@@ -1,12 +1,14 @@
 import type { DbUserTier, UserProfileRow } from "@foryou/types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   pickComposeImages,
   uploadComposeImages
 } from "./compose-images.service";
 import {
   attachPostImages,
+  awardPostPoints,
   createPostViaRpc,
+  fetchChurchIntroContent,
   fetchActiveUniversities,
   fetchUniversityById,
   getAccessTier,
@@ -16,11 +18,17 @@ import {
   getDefaultSection,
   getUniversityOptionsForTier,
   isElevatedTier,
+  isChurchCategorySlug,
+  isChurchIntroCategorySlug,
+  isChurchMasterProfile,
+  isCampusMasterProfile,
+  isCampusNoticeCategorySlug,
   isUniversityRequired,
   isUniversitySelectorDisabled,
   mapCreatePostError,
   normalizeTags,
   parsePostId,
+  upsertChurchIntroContent,
   updatePostBody,
   updatePostDegree,
   updatePostMetadata
@@ -152,6 +160,56 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function stripTextFromHtml(value: string): string {
+  return unescapeHtml(value)
+    .replace(/<img\s+[^>]*>/gi, " ")
+    .replace(/<\/?p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseChurchIntroBlocks(body: string): ComposeBlock[] {
+  const source = body ?? "";
+  const blocks: ComposeBlock[] = [];
+  const pattern = /<p>(.*?)<\/p>|<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gis;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source)) !== null) {
+    if (match[1] !== undefined) {
+      const text = unescapeHtml(match[1]).trim();
+      if (text.length > 0) {
+        blocks.push(createParagraphBlock(text));
+      }
+      continue;
+    }
+
+    const imageUrl = match[2];
+    if (imageUrl) {
+      blocks.push({
+        id: createBlockId("image"),
+        type: "image",
+        imageUrl
+      });
+    }
+  }
+
+  if (blocks.length > 0) {
+    return blocks;
+  }
+
+  return [createParagraphBlock(stripTextFromHtml(source))];
+}
+
 function serializeBlocks(params: {
   blocks: ComposeBlock[];
   imageUrlByLocalUri?: Map<string, string>;
@@ -206,6 +264,8 @@ function collectImageBlocks(blocks: ComposeBlock[]): SelectedComposeImage[] {
 export function useComposePost(params?: { profile?: UserProfileRow | null }) {
   const profile = params?.profile ?? null;
   const [state, setState] = useState<ComposeState>(INITIAL_STATE);
+  const churchIntroPrefilledForProfileRef = useRef<string | null>(null);
+  const previousCategorySlugRef = useRef<string | null>(null);
 
   const selectedSection = useMemo(() => {
     return state.sectionOptions.find((section) => section.code === state.selectedSectionCode) ?? null;
@@ -264,6 +324,10 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     return state.selectedSectionCode === "study";
   }, [state.selectedSectionCode]);
 
+  const abstractRequired = useMemo(() => {
+    return !isChurchIntroCategorySlug(state.selectedCategorySlug);
+  }, [state.selectedCategorySlug]);
+
   const canSubmit = useMemo(() => {
     if (!isSignedIn || isLoading) {
       return false;
@@ -277,7 +341,19 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return false;
     }
 
-    if (!state.title.trim() || !state.abstract.trim() || !hasEditorContent) {
+    if (isChurchCategorySlug(state.selectedCategorySlug) && !isChurchMasterProfile(state.profile)) {
+      return false;
+    }
+
+    if (isCampusMasterProfile(state.profile)) {
+      if (state.selectedSectionCode !== "life" || !isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
+        return false;
+      }
+    } else if (isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
+      return false;
+    }
+
+    if (!state.title.trim() || (abstractRequired && !state.abstract.trim()) || !hasEditorContent) {
       return false;
     }
 
@@ -300,6 +376,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     selectedSection,
     selectedCategory,
     hasEditorContent,
+    abstractRequired,
     degreeRequired,
     state.abstract,
     state.selectedCategorySlug,
@@ -336,11 +413,27 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return "Select a category.";
     }
 
+    if (isChurchCategorySlug(state.selectedCategorySlug) && !isChurchMasterProfile(state.profile)) {
+      return "Only Church-Master can create or edit Church content.";
+    }
+
+    if (isCampusMasterProfile(state.profile)) {
+      if (state.selectedSectionCode !== "life") {
+        return "Campus-Master can only compose School notice.";
+      }
+
+      if (!isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
+        return "Campus-Master can only compose campus notice.";
+      }
+    } else if (isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
+      return "Only Campus-Master can compose campus notice.";
+    }
+
     if (!state.title.trim()) {
       return "Title is required.";
     }
 
-    if (!state.abstract.trim()) {
+    if (abstractRequired && !state.abstract.trim()) {
       return "Abstract is required.";
     }
 
@@ -361,7 +454,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         return "University list is unavailable. Try again shortly.";
       }
 
-      return "Select a university or switch to Life.";
+      return "Select a university or switch to Shanghai.";
     }
 
     return null;
@@ -371,10 +464,12 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     profile,
     selectedSection,
     selectedCategory,
+    abstractRequired,
     degreeRequired,
     hasEditorContent,
     state.categoryOptions.length,
     state.selectedDegree,
+    state.selectedCategorySlug,
     state.selectedUniversitySlug,
     state.title,
     universityRequired,
@@ -417,7 +512,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       const defaultSection = getDefaultSection(sectionOptions);
       const selectedSectionCode = defaultSection?.code ?? null;
       const categoryOptions = selectedSectionCode
-        ? getCategoryOptionsForSection(selectedSectionCode, tier)
+        ? getCategoryOptionsForSection(selectedSectionCode, tier, profile)
         : [];
       const selectedCategorySlug = categoryOptions[0]?.slug ?? null;
 
@@ -484,6 +579,97 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     };
   }, [profile?.id, profile?.updated_at]);
 
+  useEffect(() => {
+    if (state.action !== "idle") {
+      return;
+    }
+
+    const currentCategory = state.selectedCategorySlug ?? null;
+    const previousCategory = previousCategorySlugRef.current;
+
+    if (previousCategory === currentCategory) {
+      return;
+    }
+
+    previousCategorySlugRef.current = currentCategory;
+
+    if (currentCategory !== "fun-church-notice") {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      title: "",
+      abstract: "",
+      blocks: [createParagraphBlock()],
+      thumbnailBlockId: null,
+      locationText: "",
+      tagsInput: "",
+      imageUploadFailures: [],
+      errorMessage: null,
+      infoMessage: null
+    }));
+  }, [state.action, state.selectedCategorySlug]);
+
+  useEffect(() => {
+    if (state.action !== "idle") {
+      return;
+    }
+
+    if (!isChurchIntroCategorySlug(state.selectedCategorySlug)) {
+      churchIntroPrefilledForProfileRef.current = null;
+      return;
+    }
+
+    if (!isChurchMasterProfile(state.profile)) {
+      return;
+    }
+
+    const profileId = state.profile?.id ?? null;
+    if (!profileId) {
+      return;
+    }
+
+    if (churchIntroPrefilledForProfileRef.current === profileId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function prefillChurchIntro() {
+      try {
+        const intro = await fetchChurchIntroContent();
+        if (cancelled) {
+          return;
+        }
+
+        const blocks = parseChurchIntroBlocks(intro.body);
+        const textSummary = stripTextFromHtml(intro.body);
+        const abstract =
+          textSummary.length > 140 ? `${textSummary.slice(0, 137)}...` : textSummary;
+        const firstImageBlock = blocks.find((block) => block.type === "image");
+
+        setState((current) => ({
+          ...current,
+          title: intro.title.trim(),
+          abstract,
+          blocks,
+          thumbnailBlockId: firstImageBlock?.id ?? null,
+          errorMessage: null
+        }));
+        churchIntroPrefilledForProfileRef.current = profileId;
+      } catch {
+        // Keep compose editable even when intro prefill fetch fails.
+      }
+    }
+
+    void prefillChurchIntro();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.action, state.profile, state.selectedCategorySlug]);
+
   function setTitle(value: string) {
     setState((current) => ({
       ...current,
@@ -527,7 +713,11 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       }
 
       const ownUniversitySlug = current.ownUniversitySlug;
-      const categoryOptions = getCategoryOptionsForSection(code, current.tier ?? null);
+      const categoryOptions = getCategoryOptionsForSection(
+        code,
+        current.tier ?? null,
+        current.profile
+      );
       const selectedCategorySlug = categoryOptions[0]?.slug ?? null;
       const isFun = code === "fun";
       const selectedUniversitySlug = isFun
@@ -676,12 +866,44 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return;
     }
 
+    if (isChurchCategorySlug(state.selectedCategorySlug) && !isChurchMasterProfile(state.profile)) {
+      setState((current) => ({
+        ...current,
+        errorMessage: "Only Church-Master can create or edit Church content."
+      }));
+      return;
+    }
+
+    if (isCampusMasterProfile(state.profile)) {
+      if (state.selectedSectionCode !== "life") {
+        setState((current) => ({
+          ...current,
+          errorMessage: "Campus-Master can only compose School notice."
+        }));
+        return;
+      }
+
+      if (!isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
+        setState((current) => ({
+          ...current,
+          errorMessage: "Campus-Master can only compose campus notice."
+        }));
+        return;
+      }
+    } else if (isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
+      setState((current) => ({
+        ...current,
+        errorMessage: "Only Campus-Master can compose campus notice."
+      }));
+      return;
+    }
+
     if (!state.title.trim()) {
       setState((current) => ({ ...current, errorMessage: "Title is required." }));
       return;
     }
 
-    if (!state.abstract.trim()) {
+    if (abstractRequired && !state.abstract.trim()) {
       setState((current) => ({ ...current, errorMessage: "Abstract is required." }));
       return;
     }
@@ -707,7 +929,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     if (!universitySelectorDisabled && !state.selectedUniversitySlug && !verifiedUniversityId) {
       setState((current) => ({
         ...current,
-        errorMessage: "Select a university or switch to Life."
+        errorMessage: "Select a university or switch to Shanghai."
       }));
       return;
     }
@@ -743,6 +965,55 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         missingImageFallback: "[Image pending upload]"
       });
 
+      if (isChurchIntroCategorySlug(state.selectedCategorySlug)) {
+        const introImageUploads = collectImageBlocks(state.blocks);
+        let introBody = draftBody;
+        let introUploadFailures: ImageUploadFailure[] = [];
+
+        if (introImageUploads.length > 0) {
+          const introPostKey = Date.now();
+          const uploadResult = await uploadComposeImages({
+            postId: introPostKey,
+            userId: state.profile.id,
+            images: introImageUploads
+          });
+
+          introUploadFailures = uploadResult.failed;
+
+          const imageUrlByLocalUri = new Map<string, string>();
+          uploadResult.uploaded.forEach((uploaded, index) => {
+            const source = introImageUploads[index];
+            if (source?.localUri) {
+              imageUrlByLocalUri.set(source.localUri, uploaded.imageUrl);
+            }
+          });
+
+          introBody = serializeBlocks({
+            blocks: state.blocks,
+            imageUrlByLocalUri,
+            missingImageFallback: "[Image failed to upload]"
+          });
+        }
+
+        await upsertChurchIntroContent({
+          title: state.title.trim(),
+          body: introBody,
+          userId: state.profile.id
+        });
+        churchIntroPrefilledForProfileRef.current = null;
+
+        setState((current) => ({
+          ...current,
+          action: "idle",
+          infoMessage: "Church intro card updated successfully.",
+          errorMessage: null,
+          createdPostId: null,
+          createdPostRoute: "/home/shanghai-church?tab=intro",
+          imageUploadFailures: introUploadFailures
+        }));
+        return;
+      }
+
       const postResult = await createPostViaRpc({
         sectionCode: selectedSection.sectionCode,
         categorySlug: state.selectedCategorySlug,
@@ -755,6 +1026,12 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
 
       const infoMessages: string[] = [postResult.message ?? "Post created successfully."];
       const postIdNumeric = parsePostId(postResult.postId);
+      console.log("[compose] create_post success", {
+        postIdRaw: postResult.postId,
+        postIdNumeric,
+        sectionCode: selectedSection.sectionCode,
+        categorySlug: state.selectedCategorySlug
+      });
       let uploadFailures: ImageUploadFailure[] = [];
       let finalBody = draftBody;
 
@@ -840,6 +1117,12 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           if (uploadResult.uploaded.length > 0) {
             try {
               const attachResult = await attachPostImages(postIdNumeric, uploadResult.uploaded);
+              console.log("[compose] attach_post_images success", {
+                postId: postIdNumeric,
+                uploadedCount: uploadResult.uploaded.length,
+                attachedCount: attachResult.attachedCount,
+                message: attachResult.message ?? null
+              });
               if (typeof attachResult.attachedCount === "number") {
                 infoMessages.push(`Attached ${attachResult.attachedCount} image(s).`);
               } else if (attachResult.message) {
@@ -863,9 +1146,61 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       if (postIdNumeric && finalBody !== draftBody) {
         try {
           await updatePostBody(postIdNumeric, finalBody);
+          console.log("[compose] updatePostBody success", {
+            postId: postIdNumeric,
+            changed: true
+          });
         } catch (error) {
           infoMessages.push(`Post saved, but body update failed: ${mapCreatePostError(error)}`);
         }
+      }
+
+      const isQaSection =
+        state.selectedSectionCode === "qa" ||
+        selectedSection.sectionCode === "qa" ||
+        (state.selectedCategorySlug?.startsWith("qa-") ?? false);
+      const shouldAwardPostPoints = !isQaSection;
+
+      if (postIdNumeric && shouldAwardPostPoints) {
+        try {
+          console.log("[compose] award_post_points start", {
+            postId: postIdNumeric
+          });
+          const awardResult = await awardPostPoints(postIdNumeric);
+          console.log("[compose] award_post_points success", {
+            postId: postIdNumeric,
+            ...awardResult
+          });
+          if (awardResult.awarded) {
+            infoMessages.push(
+              `Points +${awardResult.awardedPoints} (${awardResult.tierAtAward ?? "bronze"} -> ${
+                awardResult.nextPointTier ?? awardResult.tierAtAward ?? "bronze"
+              }).`
+            );
+          } else if (awardResult.message) {
+            infoMessages.push(`Points: ${awardResult.message}`);
+          }
+        } catch (error) {
+          console.error("[compose] award_post_points error", {
+            postId: postIdNumeric,
+            error
+          });
+          infoMessages.push(`Post saved, but points award failed: ${mapCreatePostError(error)}`);
+        }
+      } else if (postIdNumeric && !shouldAwardPostPoints) {
+        console.log("[compose] points skipped for qa section", {
+          postId: postIdNumeric,
+          sectionCode: selectedSection.sectionCode,
+          selectedSectionCode: state.selectedSectionCode,
+          categorySlug: state.selectedCategorySlug
+        });
+      } else {
+        const invalidPostIdMessage =
+          "Post saved, but points award skipped because create_post returned an invalid post id.";
+        console.error("[compose] points skipped: invalid post id from create_post", {
+          postIdRaw: postResult.postId
+        });
+        infoMessages.push(invalidPostIdMessage);
       }
 
       setState((current) => ({
@@ -880,7 +1215,12 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         tagsInput: "",
         imageUploadFailures: uploadFailures,
         createdPostId: postResult.postId,
-        createdPostRoute: postResult.postId ? `/posts/${postResult.postId}` : null,
+        createdPostRoute:
+          state.selectedCategorySlug === "fun-church-notice"
+            ? "/home/shanghai-church?tab=notice"
+            : postResult.postId
+              ? `/posts/${postResult.postId}`
+              : null,
         infoMessage: infoMessages.join(" "),
         errorMessage: null
       }));

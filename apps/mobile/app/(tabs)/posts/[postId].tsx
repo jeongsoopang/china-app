@@ -1,27 +1,43 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CommentTree,
   DiscussionComposer,
   ReportComposer
 } from "../../../src/features/discussion/discussion.components";
+import { incrementPostViewCount } from "../../../src/features/discussion/discussion.service";
 import { useDiscussionThread } from "../../../src/features/discussion/use-discussion-thread";
 import { supabase } from "../../../src/lib/supabase/client";
+import { TierMarker, resolveTierMarkerValue } from "../../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../../src/ui/theme";
+
+function isSpecialRole(value: string | null | undefined): boolean {
+  return value === "campus_master" || value === "church_master" || value === "grandmaster";
+}
 
 export default function PostDetailScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { postId, returnTo } = useLocalSearchParams<{
     postId: string;
     returnTo?: string | string[];
   }>();
 
   const resolvedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
+  const safeTopPadding = Math.max(insets.top + 8, spacing.lg);
   const thread = useDiscussionThread({ mode: "post", routeId: postId });
   const bodyBlocks = parsePostBody(thread.state.post?.body ?? "");
   const [authorName, setAuthorName] = useState<string | null>(null);
+  const [authorTier, setAuthorTier] = useState<string | null>(null);
+  const [viewCountOverride, setViewCountOverride] = useState<number | null>(null);
+  const incrementedPostIdRef = useRef<number | null>(null);
+  const inferredUniversityReturnTo = thread.state.post?.university_id
+    ? `/universities/${thread.state.post.university_id}`
+    : null;
+  const resolvedBackTo = resolvedReturnTo ?? inferredUniversityReturnTo;
 
   useEffect(() => {
     let cancelled = false;
@@ -30,12 +46,13 @@ export default function PostDetailScreen() {
       const authorId = thread.state.post?.author_id;
       if (!authorId) {
         setAuthorName(null);
+        setAuthorTier(null);
         return;
       }
 
       const { data, error } = await supabase
         .from("user_profiles")
-        .select("display_name")
+        .select("display_name, point_tier, role")
         .eq("id", authorId)
         .maybeSingle();
 
@@ -45,10 +62,18 @@ export default function PostDetailScreen() {
 
       if (error) {
         setAuthorName(null);
+        setAuthorTier(null);
         return;
       }
 
       setAuthorName(typeof data?.display_name === "string" ? data.display_name : null);
+      const role = typeof data?.role === "string" ? data.role : null;
+      const pointTier = typeof data?.point_tier === "string" ? data.point_tier : null;
+      setAuthorTier(
+        isSpecialRole(role)
+          ? role
+          : resolveTierMarkerValue(pointTier, role)
+      );
     }
 
     void loadAuthorName();
@@ -58,9 +83,43 @@ export default function PostDetailScreen() {
     };
   }, [thread.state.post?.author_id]);
 
+  useEffect(() => {
+    const numericPostId = typeof postId === "string" && /^\d+$/.test(postId) ? Number(postId) : null;
+    if (!numericPostId) {
+      return;
+    }
+    const resolvedPostId = numericPostId;
+    setViewCountOverride(null);
+
+    if (incrementedPostIdRef.current === resolvedPostId) {
+      return;
+    }
+
+    incrementedPostIdRef.current = resolvedPostId;
+    let cancelled = false;
+
+    async function incrementViews() {
+      try {
+        const nextViewCount = await incrementPostViewCount(resolvedPostId);
+        if (cancelled) {
+          return;
+        }
+        setViewCountOverride(nextViewCount);
+      } catch {
+        return;
+      }
+    }
+
+    void incrementViews();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId]);
+
   function onGoBack() {
-    if (resolvedReturnTo) {
-      router.replace(resolvedReturnTo as never);
+    if (resolvedBackTo) {
+      router.replace(resolvedBackTo as never);
       return;
     }
 
@@ -74,7 +133,7 @@ export default function PostDetailScreen() {
 
   if (thread.isLoading && !thread.state.post) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: safeTopPadding }]}>
         <View style={styles.screenHeaderRow}>
           <Pressable onPress={onGoBack} style={styles.backButton}>
             <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
@@ -88,7 +147,7 @@ export default function PostDetailScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, { paddingTop: safeTopPadding }]}>
       <View style={styles.screenHeaderRow}>
         <Pressable onPress={onGoBack} style={styles.backButton}>
           <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
@@ -107,13 +166,13 @@ export default function PostDetailScreen() {
                 pathname: "/users/[userId]",
                 params: {
                   userId: thread.state.post?.author_id ?? "",
-                  returnTo: resolvedReturnTo ?? `/posts/${postId}`
+                  returnTo: resolvedBackTo ?? `/posts/${postId}`
                 }
               })
             }
             style={styles.authorIdentityButton}
           >
-            <Ionicons name="person-circle-outline" size={16} color={colors.textSecondary} />
+            <TierMarker value={authorTier} size={16} />
             <Text style={styles.authorIdentityLabel} numberOfLines={1}>
               {authorName ?? "Unknown"}
             </Text>
@@ -152,6 +211,12 @@ export default function PostDetailScreen() {
           ) : null}
 
           <View style={styles.postMetaRow}>
+            <View style={styles.postMetaInline}>
+              <Ionicons name="eye-outline" size={16} color={colors.textMuted} />
+              <Text style={styles.metaText}>
+                Views {viewCountOverride ?? thread.state.post.view_count}
+              </Text>
+            </View>
             <Text style={styles.metaText}>Comments: {thread.state.post.comment_count}</Text>
 
             <Pressable
@@ -369,7 +434,13 @@ const styles = StyleSheet.create({
   postMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center"
+    alignItems: "center",
+    gap: spacing.sm
+  },
+  postMetaInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4
   },
   bodyBlocks: {
     gap: spacing.sm

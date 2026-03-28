@@ -16,6 +16,7 @@ import type {
 type CreatePostRpcReturn = Database["public"]["Functions"]["create_post"]["Returns"];
 type AttachPostImagesRpcReturn =
   Database["public"]["Functions"]["attach_post_images"]["Returns"];
+type AwardPostPointsRpcReturn = Database["public"]["Functions"]["award_post_points"]["Returns"];
 
 type SectionCatalog = Record<ComposeSectionCode, ComposeSectionOption>;
 type CategoryCatalog = Record<ComposeSectionCode, CategoryOption[]>;
@@ -38,7 +39,7 @@ const SECTION_CATALOG: SectionCatalog = {
   },
   fun: {
     code: "fun",
-    label: "Life",
+    label: "Shanghai",
     sectionCode: "fun"
   }
 };
@@ -62,14 +63,20 @@ const CATEGORY_CATALOG: CategoryCatalog = {
     { slug: "qa-study", label: "학업", sectionCode: "qa" }
   ],
   fun: [
-    { slug: "fun-travel", label: "여행", sectionCode: "fun" },
-    { slug: "fun-restaurants", label: "맛집", sectionCode: "fun" },
-    { slug: "fun-church", label: "교회", sectionCode: "fun" }
+    { slug: "fun-food-cafe", label: "Food · 카페", sectionCode: "fun" },
+    { slug: "fun-food-chinese", label: "Food · 중식", sectionCode: "fun" },
+    { slug: "fun-food-western", label: "Food · 양식", sectionCode: "fun" },
+    { slug: "fun-food-korean", label: "Food · 한식", sectionCode: "fun" },
+    { slug: "fun-food-japanese", label: "Food · 일식", sectionCode: "fun" },
+    { slug: "fun-food-other", label: "Food · Other", sectionCode: "fun" },
+    { slug: "fun-place", label: "Place", sectionCode: "fun" },
+    { slug: "fun-church-intro", label: "Church · 소개", sectionCode: "fun" },
+    { slug: "fun-church-notice", label: "Church · 공지", sectionCode: "fun" }
   ]
 };
 
 function canUseNoticeCategory(tier: AccessTier | null | undefined): boolean {
-  return tier === "master" || tier === "grandmaster";
+  return tier === "campus_master";
 }
 
 function parseRpcResponseValue(value: unknown): CreatePostResult {
@@ -80,7 +87,11 @@ function parseRpcResponseValue(value: unknown): CreatePostResult {
   if (value && typeof value === "object") {
     const maybeRecord = value as Record<string, unknown>;
 
-    const postIdRaw = maybeRecord.post_id ?? maybeRecord.id;
+    const postIdRaw =
+      maybeRecord.post_id ??
+      maybeRecord.postId ??
+      maybeRecord.postid ??
+      maybeRecord.id;
     const messageRaw = maybeRecord.message;
 
     return {
@@ -123,6 +134,14 @@ function parseCreatePostResponse(data: CreatePostRpcReturn | null): CreatePostRe
 }
 
 export function getComposeSectionOptions(tier: AccessTier): ComposeSectionOption[] {
+  if (tier === "church_master") {
+    return [SECTION_CATALOG.fun];
+  }
+
+  if (tier === "campus_master") {
+    return [SECTION_CATALOG.life];
+  }
+
   if (tier === "bronze") {
     return [SECTION_CATALOG.qa];
   }
@@ -149,17 +168,27 @@ export type AccessTier =
   | "bronze"
   | "silver"
   | "gold"
+  | "emerald"
+  | "diamond"
   | "platinum"
   | "master"
-  | "grandmaster";
+  | "grandmaster"
+  | "church_master"
+  | "campus_master";
+
+export type ShanghaiMainCategoryKey = "food" | "place" | "church";
 
 export function isElevatedTier(tier: AccessTier): boolean {
   return (
     tier === "silver" ||
     tier === "gold" ||
+    tier === "emerald" ||
+    tier === "diamond" ||
     tier === "platinum" ||
     tier === "master" ||
-    tier === "grandmaster"
+    tier === "grandmaster" ||
+    tier === "church_master" ||
+    tier === "campus_master"
   );
 }
 
@@ -167,9 +196,13 @@ const TIER_VALUES: AccessTier[] = [
   "bronze",
   "silver",
   "gold",
+  "emerald",
+  "diamond",
   "platinum",
   "master",
-  "grandmaster"
+  "grandmaster",
+  "church_master",
+  "campus_master"
 ];
 
 function isTierValue(value: string | null | undefined): value is AccessTier {
@@ -185,11 +218,87 @@ export function getAccessTier(profile: UserProfileRow): AccessTier {
   return roleTier ?? explicitTier ?? "bronze";
 }
 
+export function isChurchMasterProfile(profile: UserProfileRow | null | undefined): boolean {
+  if (!profile) {
+    return false;
+  }
+
+  return profile.role === "church_master" || profile.tier === "church_master";
+}
+
+export function isCampusMasterProfile(profile: UserProfileRow | null | undefined): boolean {
+  if (!profile) {
+    return false;
+  }
+
+  return profile.role === "campus_master" || profile.tier === "campus_master";
+}
+
+export function isChurchCategorySlug(slug: string | null | undefined): boolean {
+  return typeof slug === "string" && slug.startsWith("fun-church-");
+}
+
+export function isChurchIntroCategorySlug(slug: string | null | undefined): boolean {
+  return slug === "fun-church-intro";
+}
+
+export function isCampusNoticeCategorySlug(slug: string | null | undefined): boolean {
+  return slug === "life-notice";
+}
+
+export function getShanghaiMainCategoryFromSlug(
+  slug: string | null | undefined
+): ShanghaiMainCategoryKey | null {
+  if (!slug) {
+    return null;
+  }
+
+  if (slug.startsWith("fun-food-")) {
+    return "food";
+  }
+
+  if (slug === "fun-place") {
+    return "place";
+  }
+
+  if (slug.startsWith("fun-church-")) {
+    return "church";
+  }
+
+  return null;
+}
+
+export function getShanghaiSubcategoryOptions(mainCategory: ShanghaiMainCategoryKey): CategoryOption[] {
+  const all = CATEGORY_CATALOG.fun;
+  if (mainCategory === "food") {
+    return all.filter((category) => category.slug.startsWith("fun-food-"));
+  }
+
+  if (mainCategory === "church") {
+    return all.filter((category) => category.slug.startsWith("fun-church-"));
+  }
+
+  return all.filter((category) => category.slug === "fun-place");
+}
+
 export function getCategoryOptionsForSection(
   sectionCode: ComposeSectionCode,
-  tier?: AccessTier | null
+  tier?: AccessTier | null,
+  profile?: UserProfileRow | null
 ): CategoryOption[] {
-  const base = CATEGORY_CATALOG[sectionCode] ?? [];
+  const base = [...(CATEGORY_CATALOG[sectionCode] ?? [])];
+
+  if (sectionCode === "fun") {
+    if (isChurchMasterProfile(profile)) {
+      return base.filter((category) => category.slug.startsWith("fun-church-"));
+    }
+
+    return base.filter((category) => !category.slug.startsWith("fun-church-"));
+  }
+
+  if (sectionCode === "life" && isCampusMasterProfile(profile)) {
+    return [{ slug: "life-notice", label: "공지", sectionCode: "life" }];
+  }
 
   if (sectionCode === "life" && canUseNoticeCategory(tier)) {
     return [
@@ -320,7 +429,51 @@ export async function createPostViaRpc(input: CreatePostInput): Promise<CreatePo
     throw error;
   }
 
+  console.log("[compose.service] create_post raw response", {
+    data
+  });
+
   return parseCreatePostResponse(data);
+}
+
+export async function upsertChurchIntroContent(input: {
+  title: string;
+  body: string;
+  userId: string;
+}): Promise<void> {
+  const { error } = await supabase.from("church_page_content").upsert(
+    {
+      id: 1,
+      title: input.title,
+      body: input.body,
+      updated_by: input.userId
+    },
+    { onConflict: "id" }
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function fetchChurchIntroContent(): Promise<{
+  title: string;
+  body: string;
+}> {
+  const { data, error } = await supabase
+    .from("church_page_content")
+    .select("title, body")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    title: data?.title ?? "",
+    body: data?.body ?? ""
+  };
 }
 
 export async function updatePostBody(postId: number, body: string): Promise<void> {
@@ -439,13 +592,77 @@ export async function attachPostImages(
   return parseAttachPostImagesResult(data);
 }
 
+export type AwardPostPointsResult = {
+  awarded: boolean;
+  awardedPoints: number;
+  tierAtAward: string | null;
+  nextPointTier: string | null;
+  totalPoints: number | null;
+  isQualified: boolean;
+  imageCount: number | null;
+  bodyTextLength: number | null;
+  message: string | null;
+};
+
+function parseAwardPostPointsResult(data: AwardPostPointsRpcReturn): AwardPostPointsResult {
+  const row = Array.isArray(data) ? data[0] : data;
+
+  if (!row || typeof row !== "object") {
+    return {
+      awarded: false,
+      awardedPoints: 0,
+      tierAtAward: null,
+      nextPointTier: null,
+      totalPoints: null,
+      isQualified: false,
+      imageCount: null,
+      bodyTextLength: null,
+      message: null
+    };
+  }
+
+  return {
+    awarded: row.awarded === true,
+    awardedPoints: typeof row.awarded_points === "number" ? row.awarded_points : 0,
+    tierAtAward: typeof row.tier_at_award === "string" ? row.tier_at_award : null,
+    nextPointTier: typeof row.next_point_tier === "string" ? row.next_point_tier : null,
+    totalPoints: typeof row.total_points === "number" ? row.total_points : null,
+    isQualified: row.is_qualified === true,
+    imageCount: typeof row.image_count === "number" ? row.image_count : null,
+    bodyTextLength: typeof row.body_text_length === "number" ? row.body_text_length : null,
+    message: typeof row.message === "string" ? row.message : null
+  };
+}
+
+export async function awardPostPoints(postId: number): Promise<AwardPostPointsResult> {
+  const { data, error } = await supabase.rpc("award_post_points", {
+    p_post_id: postId
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return parseAwardPostPointsResult(data);
+}
+
 export function parsePostId(value: string | null): number | null {
   if (!value) {
     return null;
   }
 
-  if (/^\d+$/.test(value)) {
-    return Number(value);
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+
+  const numericCandidate = trimmed.match(/\b\d+\b/);
+  if (numericCandidate) {
+    return Number(numericCandidate[0]);
   }
 
   return null;
@@ -481,6 +698,10 @@ export function mapCreatePostError(error: unknown): string {
 
   if (message.includes("vlog")) {
     return "VLOG posting is currently unavailable.";
+  }
+
+  if (message.includes("church")) {
+    return "Church content can only be created by Church-Master.";
   }
 
   return rawMessage || fallback;

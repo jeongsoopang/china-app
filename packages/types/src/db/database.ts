@@ -14,6 +14,7 @@ export type Database = {
           body: string;
           created_at: string;
           id: number;
+          image_urls: string[];
           published_at: string | null;
           published_by: string | null;
           status: string;
@@ -24,6 +25,7 @@ export type Database = {
           body: string;
           created_at?: string;
           id?: number;
+          image_urls?: string[];
           published_at?: string | null;
           published_by?: string | null;
           status?: string;
@@ -34,6 +36,7 @@ export type Database = {
           body?: string;
           created_at?: string;
           id?: number;
+          image_urls?: string[];
           published_at?: string | null;
           published_by?: string | null;
           status?: string;
@@ -84,6 +87,41 @@ export type Database = {
             columns: ["section_id"];
             isOneToOne: false;
             referencedRelation: "sections";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      church_page_content: {
+        Row: {
+          id: number;
+          title: string;
+          body: string;
+          created_at: string;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          id?: number;
+          title?: string;
+          body?: string;
+          created_at?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: number;
+          title?: string;
+          body?: string;
+          created_at?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "church_page_content_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
             referencedColumns: ["id"];
           }
         ];
@@ -313,6 +351,60 @@ export type Database = {
           }
         ];
       };
+      post_point_awards: {
+        Row: {
+          awarded_points: number;
+          body_text_length: number;
+          created_at: string;
+          id: number;
+          image_count: number;
+          is_qualified: boolean;
+          post_id: number;
+          section_code: Database["public"]["Enums"]["section_code"];
+          tier_at_award: Database["public"]["Enums"]["point_tier"];
+          user_id: string;
+        };
+        Insert: {
+          awarded_points: number;
+          body_text_length: number;
+          created_at?: string;
+          id?: number;
+          image_count: number;
+          is_qualified: boolean;
+          post_id: number;
+          section_code: Database["public"]["Enums"]["section_code"];
+          tier_at_award: Database["public"]["Enums"]["point_tier"];
+          user_id: string;
+        };
+        Update: {
+          awarded_points?: number;
+          body_text_length?: number;
+          created_at?: string;
+          id?: number;
+          image_count?: number;
+          is_qualified?: boolean;
+          post_id?: number;
+          section_code?: Database["public"]["Enums"]["section_code"];
+          tier_at_award?: Database["public"]["Enums"]["point_tier"];
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "post_point_awards_post_id_fkey";
+            columns: ["post_id"];
+            isOneToOne: false;
+            referencedRelation: "posts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "post_point_awards_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       reports: {
         Row: {
           action_taken: string | null;
@@ -395,6 +487,7 @@ export type Database = {
           title: string;
           university_id: string;
           updated_at: string;
+          view_count: number;
           visibility: Database["public"]["Enums"]["post_visibility"];
         };
         Insert: {
@@ -418,6 +511,7 @@ export type Database = {
           title: string;
           university_id: string;
           updated_at?: string;
+          view_count?: number;
           visibility?: Database["public"]["Enums"]["post_visibility"];
         };
         Update: {
@@ -441,6 +535,7 @@ export type Database = {
           title?: string;
           university_id?: string;
           updated_at?: string;
+          view_count?: number;
           visibility?: Database["public"]["Enums"]["post_visibility"];
         };
         Relationships: [
@@ -688,6 +783,7 @@ export type Database = {
           display_name: string;
           id: string;
           is_school_verified: boolean;
+          point_tier: Database["public"]["Enums"]["point_tier"] | null;
           points: number;
           role: Database["public"]["Enums"]["user_role"];
           tier: Database["public"]["Enums"]["user_tier"];
@@ -703,6 +799,7 @@ export type Database = {
           display_name: string;
           id: string;
           is_school_verified?: boolean;
+          point_tier?: Database["public"]["Enums"]["point_tier"] | null;
           points?: number;
           role?: Database["public"]["Enums"]["user_role"];
           tier?: Database["public"]["Enums"]["user_tier"];
@@ -718,6 +815,7 @@ export type Database = {
           display_name?: string;
           id?: string;
           is_school_verified?: boolean;
+          point_tier?: Database["public"]["Enums"]["point_tier"] | null;
           points?: number;
           role?: Database["public"]["Enums"]["user_role"];
           tier?: Database["public"]["Enums"]["user_tier"];
@@ -762,6 +860,22 @@ export type Database = {
               attached_count?: number | null;
               message?: string | null;
             }[];
+      };
+      award_post_points: {
+        Args: {
+          p_post_id: number;
+        };
+        Returns: {
+          awarded: boolean;
+          awarded_points: number;
+          body_text_length: number;
+          image_count: number;
+          is_qualified: boolean;
+          message: string;
+          next_point_tier: string | null;
+          tier_at_award: string | null;
+          total_points: number;
+        }[];
       };
       accept_best_answer: {
         Args: {
@@ -943,6 +1057,12 @@ export type Database = {
           liked: boolean;
         }[];
       };
+      increment_post_view_count: {
+        Args: {
+          p_post_id: number;
+        };
+        Returns: number;
+      };
       mark_all_notifications_read: {
         Args: Record<string, never>;
         Returns:
@@ -1011,6 +1131,7 @@ export type Database = {
         | "verification_approved"
         | "moderation_penalty"
         | "manual_adjustment";
+      point_tier: "bronze" | "silver" | "gold" | "emerald" | "diamond";
       post_status: "active" | "hidden" | "removed";
       post_visibility: "public" | "university_only";
       school_verification_status:
@@ -1024,11 +1145,27 @@ export type Database = {
         | "bronze"
         | "silver"
         | "gold"
+        | "emerald"
+        | "diamond"
         | "platinum"
+        | "master"
+        | "grandmaster"
+        | "church_master"
+        | "campus_master"
         | "student"
         | "moderator"
         | "admin";
-      user_tier: "bronze" | "silver" | "gold" | "platinum";
+      user_tier:
+        | "bronze"
+        | "silver"
+        | "gold"
+        | "emerald"
+        | "diamond"
+        | "platinum"
+        | "master"
+        | "grandmaster"
+        | "church_master"
+        | "campus_master";
     };
     CompositeTypes: Record<string, never>;
   };

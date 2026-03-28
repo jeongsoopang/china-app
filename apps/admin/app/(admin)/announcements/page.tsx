@@ -4,7 +4,10 @@ import {
   publishAnnouncementAction,
   updateAnnouncementAction
 } from "../../../lib/moderation/actions";
-import { fetchAnnouncements } from "../../../lib/moderation/moderation.service";
+import {
+  fetchAnnouncements,
+  isAnnouncementImageColumnAvailable
+} from "../../../lib/moderation/moderation.service";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +20,45 @@ function formatTime(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function renderAnnouncementImages(imageUrls: string[]) {
+  if (imageUrls.length === 0) {
+    return <p className="muted-text" style={{ marginTop: 0 }}>No attached images.</p>;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+      <p className="muted-text" style={{ margin: 0 }}>
+        Attached images ({imageUrls.length})
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+        {imageUrls.map((imageUrl) => (
+          <a key={imageUrl} href={imageUrl} target="_blank" rel="noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt="Announcement attachment"
+              style={{
+                width: "100%",
+                height: "auto",
+                borderRadius: 10,
+                border: "1px solid #e2e8f0",
+                backgroundColor: "#fff"
+              }}
+            />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default async function AnnouncementsPage() {
   let announcementsError: string | null = null;
   let announcements = [] as Awaited<ReturnType<typeof fetchAnnouncements>>;
+  let supportsAnnouncementImages = false;
 
   try {
+    supportsAnnouncementImages = await isAnnouncementImageColumnAvailable();
     announcements = await fetchAnnouncements();
   } catch (error) {
     announcementsError =
@@ -82,6 +119,22 @@ export default async function AnnouncementsPage() {
             />
           </label>
 
+          <label>
+            <input name="isHomePopup" type="checkbox" />
+            Show as Home popup (also remains a normal announcement)
+          </label>
+
+          {supportsAnnouncementImages ? (
+            <label style={{ gridColumn: "1 / -1" }}>
+              Attach images (optional)
+              <input name="images" type="file" accept="image/*" multiple />
+            </label>
+          ) : (
+            <p className="muted-text" style={{ margin: 0 }}>
+              Image attachments are temporarily unavailable until migration `0023` is applied.
+            </p>
+          )}
+
           <button type="submit">Create Draft</button>
         </form>
       </article>
@@ -110,6 +163,7 @@ export default async function AnnouncementsPage() {
                     </header>
 
                     <p style={{ marginBottom: 6, fontWeight: 600 }}>{announcement.outline}</p>
+                    {renderAnnouncementImages(announcement.image_urls)}
                     <p style={{ whiteSpace: "pre-wrap" }}>{announcement.body}</p>
 
                     <dl className="data-grid">
@@ -129,6 +183,10 @@ export default async function AnnouncementsPage() {
                         <dt>Published</dt>
                         <dd>{formatTime(announcement.published_at)}</dd>
                       </div>
+                      <div>
+                        <dt>Home Popup</dt>
+                        <dd>{announcement.is_home_popup ? "yes" : "no"}</dd>
+                      </div>
                     </dl>
 
                     <form action={publishAnnouncementAction} className="action-form">
@@ -145,12 +203,26 @@ export default async function AnnouncementsPage() {
                         Edit announcement
                       </summary>
 
-                      <form action={updateAnnouncementAction} className="action-form" style={{ marginTop: 12 }}>
+                      <form
+                        action={updateAnnouncementAction}
+                        className="action-form"
+                        style={{ marginTop: 12 }}
+                      >
                         <input
                           name="announcementId"
                           type="hidden"
                           value={String(announcement.id)}
                         />
+                        {supportsAnnouncementImages
+                          ? announcement.image_urls.map((imageUrl) => (
+                              <input
+                                key={`${announcement.id}-${imageUrl}`}
+                                name="existingImageUrls"
+                                type="hidden"
+                                value={imageUrl}
+                              />
+                            ))
+                          : null}
 
                         <label>
                           Title
@@ -184,6 +256,22 @@ export default async function AnnouncementsPage() {
                             }}
                           />
                         </label>
+
+                        <label>
+                          <input
+                            name="isHomePopup"
+                            type="checkbox"
+                            defaultChecked={announcement.is_home_popup}
+                          />
+                          Show as Home popup (also remains a normal announcement)
+                        </label>
+
+                        {supportsAnnouncementImages ? (
+                          <label style={{ gridColumn: "1 / -1" }}>
+                            Attach additional images (optional)
+                            <input name="images" type="file" accept="image/*" multiple />
+                          </label>
+                        ) : null}
 
                         <button type="submit">Save Changes</button>
                       </form>
@@ -233,6 +321,7 @@ export default async function AnnouncementsPage() {
                     </header>
 
                     <p style={{ marginBottom: 6, fontWeight: 600 }}>{announcement.outline}</p>
+                    {renderAnnouncementImages(announcement.image_urls)}
                     <p style={{ whiteSpace: "pre-wrap" }}>{announcement.body}</p>
 
                     <dl className="data-grid">
@@ -252,6 +341,10 @@ export default async function AnnouncementsPage() {
                         <dt>Published</dt>
                         <dd>{formatTime(announcement.published_at)}</dd>
                       </div>
+                      <div>
+                        <dt>Home Popup</dt>
+                        <dd>{announcement.is_home_popup ? "yes" : "no"}</dd>
+                      </div>
                     </dl>
 
                     <details style={{ marginTop: 16 }}>
@@ -259,12 +352,26 @@ export default async function AnnouncementsPage() {
                         Edit announcement
                       </summary>
 
-                      <form action={updateAnnouncementAction} className="action-form" style={{ marginTop: 12 }}>
+                      <form
+                        action={updateAnnouncementAction}
+                        className="action-form"
+                        style={{ marginTop: 12 }}
+                      >
                         <input
                           name="announcementId"
                           type="hidden"
                           value={String(announcement.id)}
                         />
+                        {supportsAnnouncementImages
+                          ? announcement.image_urls.map((imageUrl) => (
+                              <input
+                                key={`${announcement.id}-${imageUrl}`}
+                                name="existingImageUrls"
+                                type="hidden"
+                                value={imageUrl}
+                              />
+                            ))
+                          : null}
 
                         <label>
                           Title
@@ -298,6 +405,22 @@ export default async function AnnouncementsPage() {
                             }}
                           />
                         </label>
+
+                        <label>
+                          <input
+                            name="isHomePopup"
+                            type="checkbox"
+                            defaultChecked={announcement.is_home_popup}
+                          />
+                          Show as Home popup (also remains a normal announcement)
+                        </label>
+
+                        {supportsAnnouncementImages ? (
+                          <label style={{ gridColumn: "1 / -1" }}>
+                            Attach additional images (optional)
+                            <input name="images" type="file" accept="image/*" multiple />
+                          </label>
+                        ) : null}
 
                         <button type="submit">Save Changes</button>
                       </form>

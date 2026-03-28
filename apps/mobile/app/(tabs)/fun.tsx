@@ -3,6 +3,7 @@ import { Link, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { supabase } from "../../src/lib/supabase/client";
+import { CityHeroHeader } from "../../src/ui/city-hero-header";
 import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
 type LifeCategorySlug = "fun-travel" | "fun-restaurants" | "fun-church";
@@ -17,6 +18,7 @@ type LifePost = {
   thumbnailImageUrl: string | null;
   likeCount: number;
   commentCount: number;
+  viewCount: number;
   createdAt: string;
   categorySlug: string | null;
   images: { imageUrl: string; sortOrder: number | null }[];
@@ -51,6 +53,7 @@ export default function FunScreen() {
           thumbnail_image_url,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections!inner ( code ),
           categories ( slug ),
@@ -77,6 +80,7 @@ export default function FunScreen() {
           body,
           like_count,
           comment_count,
+          view_count,
           created_at,
           sections!inner ( code ),
           categories ( slug ),
@@ -121,6 +125,7 @@ export default function FunScreen() {
       thumbnail_image_url?: string | null;
       like_count: number | null;
       comment_count: number | null;
+      view_count: number | null;
       created_at: string;
       categories: { slug: string | null } | null;
       post_images: Array<{ image_url: string; sort_order: number | null }> | null;
@@ -137,6 +142,7 @@ export default function FunScreen() {
         typeof row.thumbnail_image_url === "string" ? row.thumbnail_image_url : null,
       likeCount: row.like_count ?? 0,
       commentCount: row.comment_count ?? 0,
+      viewCount: row.view_count ?? 0,
       createdAt: row.created_at,
       categorySlug: row.categories?.slug ?? null,
       images: (row.post_images ?? []).map((image) => ({
@@ -191,10 +197,12 @@ export default function FunScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.heroCard}>
-        <Text style={styles.heading}>Life</Text>
-        <Text style={styles.heroSubheading}>여행, 맛집, 일상의 중국 생활 이야기를 확인하세요.</Text>
-      </View>
+      <CityHeroHeader
+        title="Life"
+        subtitle="여행, 맛집, 일상의 중국 생활 이야기를 확인하세요."
+        height={158}
+        style={styles.heroFullBleed}
+      />
 
       <View style={styles.categoryRow}>
         {LIFE_CATEGORY_TABS.map((tab) => {
@@ -253,6 +261,10 @@ export default function FunScreen() {
                     <View style={styles.postEngagementItem}>
                       <Ionicons name="chatbubble-outline" size={13} color={colors.textMuted} />
                       <Text style={styles.postMeta}>{post.commentCount}</Text>
+                    </View>
+                    <View style={styles.postEngagementItem}>
+                      <Ionicons name="eye-outline" size={13} color={colors.textMuted} />
+                      <Text style={styles.postMeta}>Views {post.viewCount}</Text>
                     </View>
                   </View>
                 </View>
@@ -313,27 +325,8 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     backgroundColor: colors.background
   },
-  heroCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    shadowColor: "#0b1e38",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2
-  },
-  heading: {
-    fontSize: typography.title,
-    fontWeight: "700",
-    color: colors.textPrimary
-  },
-  heroSubheading: {
-    marginTop: 4,
-    fontSize: typography.bodySmall,
-    color: colors.textSecondary
+  heroFullBleed: {
+    marginHorizontal: -spacing.lg
   },
   categoryRow: {
     flexDirection: "row",

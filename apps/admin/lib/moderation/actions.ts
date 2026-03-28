@@ -4,11 +4,15 @@ import { revalidatePath } from "next/cache";
 import {
   createAnnouncementDraft,
   deleteAnnouncementById,
+  isAnnouncementImageColumnAvailable,
   publishAnnouncementById,
+  parseAnnouncementImageFiles,
   reviewModerationFlagById,
   reviewReportById,
+  uploadAnnouncementImages,
   updateAnnouncementById
 } from "./moderation.service";
+import { createAdminServerSupabaseClient } from "../supabase/server";
 
 function parseRequiredPositiveInteger(value: FormDataEntryValue | null, fieldName: string): number {
   if (typeof value !== "string" || !/^\d+$/.test(value)) {
@@ -27,6 +31,34 @@ function parseRequiredText(value: FormDataEntryValue | null, fieldName: string):
 }
 
 const allowedReportActions = new Set(["none", "request_revision", "hide", "delete"]);
+
+function parseCheckbox(value: FormDataEntryValue | null): boolean {
+  return value === "on" || value === "true" || value === "1";
+}
+
+function parseImageUrlValues(formData: FormData, fieldName: string): string[] {
+  return formData
+    .getAll(fieldName)
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+async function requireCurrentAdminUserId(): Promise<string> {
+  const authClient = await createAdminServerSupabaseClient();
+  const authResult = await authClient.auth.getUser();
+
+  if (authResult.error) {
+    throw authResult.error;
+  }
+
+  const currentUserId = authResult.data.user?.id;
+  if (!currentUserId) {
+    throw new Error("Authenticated admin user not found.");
+  }
+
+  return currentUserId;
+}
 
 export async function reviewReportAction(formData: FormData) {
   const reportId = parseRequiredPositiveInteger(formData.get("reportId"), "reportId");
@@ -64,11 +96,27 @@ export async function createAnnouncementAction(formData: FormData) {
   const title = parseRequiredText(formData.get("title"), "title");
   const outline = parseRequiredText(formData.get("outline"), "outline");
   const body = parseRequiredText(formData.get("body"), "body");
+  const isHomePopup = parseCheckbox(formData.get("isHomePopup"));
+  const imageFiles = parseAnnouncementImageFiles(formData, "images");
+  if (imageFiles.length > 0 && !(await isAnnouncementImageColumnAvailable())) {
+    throw new Error(
+      "Announcement image attachments are temporarily unavailable until DB migration 0023 is applied."
+    );
+  }
+  const imageUrls =
+    imageFiles.length > 0
+      ? await uploadAnnouncementImages({
+          currentUserId: await requireCurrentAdminUserId(),
+          files: imageFiles
+        })
+      : [];
 
   await createAnnouncementDraft({
     title,
     outline,
-    body
+    body,
+    isHomePopup,
+    imageUrls
   });
 
   revalidatePath("/announcements");
@@ -82,12 +130,30 @@ export async function updateAnnouncementAction(formData: FormData) {
   const title = parseRequiredText(formData.get("title"), "title");
   const outline = parseRequiredText(formData.get("outline"), "outline");
   const body = parseRequiredText(formData.get("body"), "body");
+  const isHomePopup = parseCheckbox(formData.get("isHomePopup"));
+  const existingImageUrls = parseImageUrlValues(formData, "existingImageUrls");
+  const imageFiles = parseAnnouncementImageFiles(formData, "images");
+  if (imageFiles.length > 0 && !(await isAnnouncementImageColumnAvailable())) {
+    throw new Error(
+      "Announcement image attachments are temporarily unavailable until DB migration 0023 is applied."
+    );
+  }
+  const uploadedImageUrls =
+    imageFiles.length > 0
+      ? await uploadAnnouncementImages({
+          currentUserId: await requireCurrentAdminUserId(),
+          files: imageFiles
+        })
+      : [];
+  const imageUrls = [...existingImageUrls, ...uploadedImageUrls];
 
   await updateAnnouncementById({
     announcementId,
     title,
     outline,
-    body
+    body,
+    isHomePopup,
+    imageUrls
   });
 
   revalidatePath("/announcements");

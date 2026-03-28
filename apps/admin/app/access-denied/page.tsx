@@ -42,7 +42,7 @@ export default async function AccessDeniedPage() {
 
   return (
     <main>
-      <h1>ForYou Admin</h1>
+      <h1>LUCL Admin</h1>
       <section className="auth-card">
         <h2>{getReasonTitle(accessState.reason)}</h2>
         <p>{getReasonDescription(accessState.reason)}</p>

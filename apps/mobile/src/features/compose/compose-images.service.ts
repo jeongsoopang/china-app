@@ -1,5 +1,6 @@
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
+import { SaveFormat, manipulateAsync } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Platform } from "react-native";
 import { supabase } from "../../lib/supabase/client";
@@ -11,6 +12,9 @@ import type {
 } from "./compose.types";
 
 const POST_IMAGES_BUCKET = "post-images";
+const COMPOSE_UPLOAD_MAX_LONG_EDGE = 2048;
+const COMPOSE_UPLOAD_COMPRESS = 0.9;
+const CACHE_CONTROL_ONE_YEAR_SECONDS = "31536000";
 
 function inferFileExtension(image: SelectedComposeImage): string {
   const fromName = image.fileName.split(".").pop()?.toLowerCase();
@@ -54,6 +58,58 @@ function toSelectedImage(asset: ImagePicker.ImagePickerAsset): SelectedComposeIm
   };
 }
 
+function replaceFileExtension(fileName: string, nextExtension: string): string {
+  const extensionPattern = /\.[a-z0-9]+$/i;
+  if (extensionPattern.test(fileName)) {
+    return fileName.replace(extensionPattern, `.${nextExtension}`);
+  }
+
+  return `${fileName}.${nextExtension}`;
+}
+
+async function optimizeComposeImageForUpload(
+  image: SelectedComposeImage
+): Promise<SelectedComposeImage> {
+  if (Platform.OS === "web") {
+    return image;
+  }
+
+  const width = typeof image.width === "number" ? image.width : null;
+  const height = typeof image.height === "number" ? image.height : null;
+
+  if (!width || !height || width <= 0 || height <= 0) {
+    return image;
+  }
+
+  const longEdge = Math.max(width, height);
+  if (longEdge <= COMPOSE_UPLOAD_MAX_LONG_EDGE) {
+    return image;
+  }
+
+  const scale = COMPOSE_UPLOAD_MAX_LONG_EDGE / longEdge;
+  const resizedWidth = Math.max(1, Math.round(width * scale));
+  const resizedHeight = Math.max(1, Math.round(height * scale));
+  const usePng = image.mimeType.toLowerCase().includes("png");
+  const format = usePng ? SaveFormat.PNG : SaveFormat.JPEG;
+  const nextMimeType = usePng ? "image/png" : "image/jpeg";
+  const nextExtension = usePng ? "png" : "jpg";
+
+  const resized = await manipulateAsync(
+    image.localUri,
+    [{ resize: { width: resizedWidth, height: resizedHeight } }],
+    { compress: COMPOSE_UPLOAD_COMPRESS, format }
+  );
+
+  return {
+    ...image,
+    localUri: resized.uri,
+    fileName: replaceFileExtension(image.fileName, nextExtension),
+    mimeType: nextMimeType,
+    width: resized.width,
+    height: resized.height
+  };
+}
+
 export async function pickComposeImages(
   current: SelectedComposeImage[]
 ): Promise<SelectedComposeImage[]> {
@@ -88,14 +144,16 @@ async function uploadSingleImage(params: {
   const { postId, userId, image, index } = params;
 
   try {
-    const data = await readImageData(image);
+    const optimizedImage = await optimizeComposeImageForUpload(image);
+    const data = await readImageData(optimizedImage);
 
-    const storagePath = createStoragePath(postId, userId, image, index);
+    const storagePath = createStoragePath(postId, userId, optimizedImage, index);
 
     const uploadResult = await supabase.storage
       .from(POST_IMAGES_BUCKET)
       .upload(storagePath, data, {
-        contentType: image.mimeType,
+        contentType: optimizedImage.mimeType,
+        cacheControl: CACHE_CONTROL_ONE_YEAR_SECONDS,
         upsert: false
       });
 
@@ -115,7 +173,7 @@ async function uploadSingleImage(params: {
       uploaded: {
         storagePath,
         imageUrl: publicUrlResult.data.publicUrl,
-        fileName: image.fileName
+        fileName: optimizedImage.fileName
       }
     };
   } catch (error) {

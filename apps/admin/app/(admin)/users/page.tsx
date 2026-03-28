@@ -8,10 +8,22 @@ const roleOptions = [
   "bronze",
   "silver",
   "gold",
-  "platinum",
-  "master",
+  "emerald",
+  "diamond",
+  "church_master",
+  "campus_master",
   "grandmaster"
 ] as const;
+
+function normalizeRoleForUi(role: string): string {
+  if (role === "platinum") {
+    return "diamond";
+  }
+  if (role === "master") {
+    return "grandmaster";
+  }
+  return role;
+}
 
 type UsersPageProps = {
   searchParams?: Promise<{
@@ -90,7 +102,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
             <article key={user.id} className="data-card">
               <header className="data-card-header">
                 <h3>{user.display_name}</h3>
-                <span className="status-badge">{user.role}</span>
+                <span className="status-badge">{normalizeRoleForUi(user.role)}</span>
               </header>
 
               <dl className="data-grid">
@@ -121,7 +133,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
 
                 <label>
                   Role
-                  <select name="role" defaultValue={user.role}>
+                  <select name="role" defaultValue={normalizeRoleForUi(user.role)}>
                     {roleOptions
                       .filter((option) => option !== "all")
                       .map((option) => (

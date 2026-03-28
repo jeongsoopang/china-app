@@ -18,7 +18,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   return (
     <main>
-      <h1>ForYou Admin</h1>
+      <h1>LUCL Admin</h1>
       <section className="auth-card">
         <h2>Sign In</h2>
         <p>Sign in with your admin email and password.</p>

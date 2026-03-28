@@ -54,11 +54,168 @@ export type AdminAnnouncementRow = {
   title: string;
   outline: string;
   body: string;
+  image_urls: string[];
+  is_home_popup: boolean;
   is_published: boolean;
   published_at: string | null;
   created_at: string;
   updated_at: string;
 };
+
+type RawAdminAnnouncementRow = Omit<AdminAnnouncementRow, "image_urls"> & {
+  image_urls?: unknown;
+};
+
+const ANNOUNCEMENT_IMAGES_BUCKET = "post-images";
+const ANNOUNCEMENT_IMAGE_MAX_COUNT = 8;
+const ANNOUNCEMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const ANNOUNCEMENT_IMAGE_CACHE_CONTROL = "31536000";
+const ANNOUNCEMENT_SELECT_WITH_IMAGES =
+  "id, author_user_id, title, outline, body, image_urls, is_home_popup, is_published, published_at, created_at, updated_at";
+const ANNOUNCEMENT_SELECT_NO_IMAGES =
+  "id, author_user_id, title, outline, body, is_home_popup, is_published, published_at, created_at, updated_at";
+
+function sanitizeStorageSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function inferImageExtension(file: File): string {
+  const fromName = file.name.split(".").pop()?.toLowerCase();
+  if (fromName && /^[a-z0-9]{1,5}$/.test(fromName)) {
+    return fromName === "jpeg" ? "jpg" : fromName;
+  }
+
+  const fromType = file.type.split("/").pop()?.toLowerCase();
+  if (fromType && /^[a-z0-9]{1,5}$/.test(fromType)) {
+    return fromType === "jpeg" ? "jpg" : fromType;
+  }
+
+  return "jpg";
+}
+
+function createAnnouncementImageStoragePath(userId: string, index: number, file: File): string {
+  const safeUserId = sanitizeStorageSegment(userId);
+  const extension = inferImageExtension(file);
+  return `announcements/${safeUserId}/${Date.now()}-${index}-${crypto.randomUUID()}.${extension}`;
+}
+
+function normalizeImageUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
+
+function toAdminAnnouncementRow(row: RawAdminAnnouncementRow): AdminAnnouncementRow {
+  return {
+    ...row,
+    image_urls: normalizeImageUrls(row.image_urls)
+  };
+}
+
+function isMissingColumnError(error: unknown, columnName: string): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error ? (error as { code?: unknown }).code : null;
+  const message = "message" in error ? (error as { message?: unknown }).message : null;
+  const messageText = typeof message === "string" ? message.toLowerCase() : "";
+  const missingByCode = code === "42703";
+  const missingByMessage =
+    messageText.includes(columnName.toLowerCase()) && messageText.includes("does not exist");
+
+  return missingByCode || missingByMessage;
+}
+
+function isMissingAnnouncementImageUrlsColumnError(error: unknown): boolean {
+  return isMissingColumnError(error, "image_urls");
+}
+
+function announcementImageColumnMigrationMessage(): string {
+  return "Announcement image attachments require DB migration 0023_add_announcement_image_urls.sql.";
+}
+
+function normalizeFile(value: FormDataEntryValue): File | null {
+  if (typeof value === "string") {
+    return null;
+  }
+
+  if (typeof File !== "undefined" && value instanceof File) {
+    return value.size > 0 ? value : null;
+  }
+
+  return null;
+}
+
+export function parseAnnouncementImageFiles(formData: FormData, fieldName: string): File[] {
+  const files = formData
+    .getAll(fieldName)
+    .map(normalizeFile)
+    .filter((file): file is File => Boolean(file));
+
+  if (files.length > ANNOUNCEMENT_IMAGE_MAX_COUNT) {
+    throw new Error(
+      `You can attach up to ${ANNOUNCEMENT_IMAGE_MAX_COUNT} announcement images at once.`
+    );
+  }
+
+  for (const file of files) {
+    if (!file.type.toLowerCase().startsWith("image/")) {
+      throw new Error("Only image files can be attached to announcements.");
+    }
+
+    if (file.size > ANNOUNCEMENT_IMAGE_MAX_BYTES) {
+      throw new Error("Each announcement image must be 10MB or smaller.");
+    }
+  }
+
+  return files;
+}
+
+export async function uploadAnnouncementImages(params: {
+  currentUserId: string;
+  files: File[];
+}): Promise<string[]> {
+  const { currentUserId, files } = params;
+  if (files.length === 0) {
+    return [];
+  }
+
+  const client = createAdminServiceClient();
+  const uploadedUrls: string[] = [];
+
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    if (!file) {
+      continue;
+    }
+
+    const storagePath = createAnnouncementImageStoragePath(currentUserId, index, file);
+    const contentType = file.type || "image/jpeg";
+
+    const uploadResult = await client.storage
+      .from(ANNOUNCEMENT_IMAGES_BUCKET)
+      .upload(storagePath, file, {
+        contentType,
+        cacheControl: ANNOUNCEMENT_IMAGE_CACHE_CONTROL,
+        upsert: false
+      });
+
+    if (uploadResult.error) {
+      throw uploadResult.error;
+    }
+
+    const publicUrlResult = client.storage
+      .from(ANNOUNCEMENT_IMAGES_BUCKET)
+      .getPublicUrl(storagePath);
+
+    uploadedUrls.push(publicUrlResult.data.publicUrl);
+  }
+
+  return uploadedUrls;
+}
 
 function errorMessageFromUnknown(error: unknown, fallback: string): string {
   if (error instanceof Error) {
@@ -277,28 +434,68 @@ export async function fetchAnnouncements(limit = 100): Promise<AdminAnnouncement
   await requireGrandMasterAccess();
 
   const client = createAdminServiceClient();
-  const { data, error } = await (client
+  const withImages = await (client
     .from("announcements")
-    .select(
-      "id, author_user_id, title, outline, body, is_published, published_at, created_at, updated_at"
-    )
+    .select(ANNOUNCEMENT_SELECT_WITH_IMAGES)
     .order("created_at", { ascending: false })
     .limit(limit) as PromiseLike<{
-    data: AdminAnnouncementRow[] | null;
+    data: RawAdminAnnouncementRow[] | null;
     error: unknown;
   }>);
 
-  if (error) {
-    throw error;
+  if (!withImages.error) {
+    return (withImages.data ?? []).map(toAdminAnnouncementRow);
   }
 
-  return data ?? [];
+  if (!isMissingAnnouncementImageUrlsColumnError(withImages.error)) {
+    throw withImages.error;
+  }
+
+  const withoutImages = await (client
+    .from("announcements")
+    .select(ANNOUNCEMENT_SELECT_NO_IMAGES)
+    .order("created_at", { ascending: false })
+    .limit(limit) as PromiseLike<{
+    data: RawAdminAnnouncementRow[] | null;
+    error: unknown;
+  }>);
+
+  if (withoutImages.error) {
+    throw withoutImages.error;
+  }
+
+  return (withoutImages.data ?? []).map(toAdminAnnouncementRow);
+}
+
+export async function isAnnouncementImageColumnAvailable(): Promise<boolean> {
+  await requireGrandMasterAccess();
+
+  const client = createAdminServiceClient();
+  const result = await (client
+    .from("announcements")
+    .select("image_urls")
+    .limit(1) as PromiseLike<{
+    data: unknown[] | null;
+    error: unknown;
+  }>);
+
+  if (!result.error) {
+    return true;
+  }
+
+  if (isMissingAnnouncementImageUrlsColumnError(result.error)) {
+    return false;
+  }
+
+  throw result.error;
 }
 
 export async function createAnnouncementDraft(input: {
   title: string;
   outline: string;
   body: string;
+  isHomePopup: boolean;
+  imageUrls: string[];
 }) {
   await requireGrandMasterAccess();
 
@@ -315,31 +512,62 @@ export async function createAnnouncementDraft(input: {
   }
 
   const client = createAdminServiceClient();
-  const { data, error } = await (client
+  const withImages = await (client
     .from("announcements")
     .insert({
       author_user_id: currentUserId,
       title: input.title,
       outline: input.outline,
-      body: input.body
+      body: input.body,
+      image_urls: input.imageUrls,
+      is_home_popup: input.isHomePopup
     })
-    .select(
-      "id, author_user_id, title, outline, body, is_published, published_at, created_at, updated_at"
-    )
+    .select(ANNOUNCEMENT_SELECT_WITH_IMAGES)
     .single() as PromiseLike<{
-    data: AdminAnnouncementRow | null;
+    data: RawAdminAnnouncementRow | null;
     error: unknown;
   }>);
 
-  if (error) {
-    throw error;
+  if (!withImages.error) {
+    if (!withImages.data) {
+      throw new Error("Failed to create announcement draft.");
+    }
+
+    return toAdminAnnouncementRow(withImages.data);
   }
 
-  if (!data) {
+  if (!isMissingAnnouncementImageUrlsColumnError(withImages.error)) {
+    throw withImages.error;
+  }
+
+  if (input.imageUrls.length > 0) {
+    throw new Error(announcementImageColumnMigrationMessage());
+  }
+
+  const withoutImages = await (client
+    .from("announcements")
+    .insert({
+      author_user_id: currentUserId,
+      title: input.title,
+      outline: input.outline,
+      body: input.body,
+      is_home_popup: input.isHomePopup
+    })
+    .select(ANNOUNCEMENT_SELECT_NO_IMAGES)
+    .single() as PromiseLike<{
+    data: RawAdminAnnouncementRow | null;
+    error: unknown;
+  }>);
+
+  if (withoutImages.error) {
+    throw withoutImages.error;
+  }
+
+  if (!withoutImages.data) {
     throw new Error("Failed to create announcement draft.");
   }
 
-  return data;
+  return toAdminAnnouncementRow(withoutImages.data);
 }
 
 export async function updateAnnouncementById(params: {
@@ -347,37 +575,69 @@ export async function updateAnnouncementById(params: {
   title: string;
   outline: string;
   body: string;
+  isHomePopup: boolean;
+  imageUrls: string[];
 }) {
   await requireGrandMasterAccess();
 
   const client = createAdminServiceClient();
 
-  const { data, error } = await (client
+  const withImages = await (client
     .from("announcements")
     .update({
       title: params.title,
       outline: params.outline,
       body: params.body,
+      image_urls: params.imageUrls,
+      is_home_popup: params.isHomePopup,
       updated_at: new Date().toISOString()
     })
     .eq("id", params.announcementId)
-    .select(
-      "id, author_user_id, title, outline, body, is_published, published_at, created_at, updated_at"
-    )
+    .select(ANNOUNCEMENT_SELECT_WITH_IMAGES)
     .single() as PromiseLike<{
-    data: AdminAnnouncementRow | null;
+    data: RawAdminAnnouncementRow | null;
     error: unknown;
   }>);
 
-  if (error) {
-    throw error;
+  let updatedRow: RawAdminAnnouncementRow | null = null;
+
+  if (!withImages.error) {
+    updatedRow = withImages.data;
+  } else if (isMissingAnnouncementImageUrlsColumnError(withImages.error)) {
+    if (params.imageUrls.length > 0) {
+      throw new Error(announcementImageColumnMigrationMessage());
+    }
+
+    const withoutImages = await (client
+      .from("announcements")
+      .update({
+        title: params.title,
+        outline: params.outline,
+        body: params.body,
+        is_home_popup: params.isHomePopup,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", params.announcementId)
+      .select(ANNOUNCEMENT_SELECT_NO_IMAGES)
+      .single() as PromiseLike<{
+      data: RawAdminAnnouncementRow | null;
+      error: unknown;
+    }>);
+
+    if (withoutImages.error) {
+      throw withoutImages.error;
+    }
+
+    updatedRow = withoutImages.data;
+  } else {
+    throw withImages.error;
   }
 
-  if (!data) {
+  if (!updatedRow) {
     throw new Error("Announcement not found.");
   }
 
-  if (data.is_published) {
+  if (updatedRow.is_published) {
     const notificationsUpdate = await client
       .from("notifications")
       .update({
@@ -393,7 +653,7 @@ export async function updateAnnouncementById(params: {
     }
   }
 
-  return data;
+  return toAdminAnnouncementRow(updatedRow);
 }
 
 export async function deleteAnnouncementById(announcementId: number) {
@@ -445,19 +705,36 @@ export async function publishAnnouncementById(announcementId: number) {
   }
 
   const verifyClient = createAdminServiceClient();
-  const { data, error } = await (verifyClient
+  const withImages = await (verifyClient
     .from("announcements")
-    .select(
-      "id, author_user_id, title, outline, body, is_published, published_at, created_at, updated_at"
-    )
+    .select(ANNOUNCEMENT_SELECT_WITH_IMAGES)
     .eq("id", announcementId)
     .single() as PromiseLike<{
-    data: AdminAnnouncementRow | null;
+    data: RawAdminAnnouncementRow | null;
     error: unknown;
   }>);
 
-  if (error) {
-    throw error;
+  let data: RawAdminAnnouncementRow | null = null;
+
+  if (!withImages.error) {
+    data = withImages.data;
+  } else if (isMissingAnnouncementImageUrlsColumnError(withImages.error)) {
+    const withoutImages = await (verifyClient
+      .from("announcements")
+      .select(ANNOUNCEMENT_SELECT_NO_IMAGES)
+      .eq("id", announcementId)
+      .single() as PromiseLike<{
+      data: RawAdminAnnouncementRow | null;
+      error: unknown;
+    }>);
+
+    if (withoutImages.error) {
+      throw withoutImages.error;
+    }
+
+    data = withoutImages.data;
+  } else {
+    throw withImages.error;
   }
 
   if (!data) {
