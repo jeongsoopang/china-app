@@ -1,38 +1,63 @@
 import type { Metadata } from "next";
 import { PUBLIC_SITE } from "../../config/public-site";
+import {
+  PUBLIC_PAGES_CONTENT,
+  normalizePublicLang,
+  type PublicSection
+} from "../public-pages-content";
 import { PublicPageShell } from "../public-page-shell";
 
 export const metadata: Metadata = {
-  title: `Support | ${PUBLIC_SITE.siteName}`,
+  title: `문의하기 | ${PUBLIC_SITE.siteName}`,
   description: `Support page for ${PUBLIC_SITE.siteName}`
 };
 
-export default function SupportPage() {
-  return (
-    <PublicPageShell
-      title="Support"
-      description="Need help with LUCL? Contact support for account, bug, or safety-related requests."
-    >
-      <section>
-        <h2>How to Get Help</h2>
-        <ul>
-          <li>App usage questions and account access issues.</li>
-          <li>Bug reports and feature feedback.</li>
-          <li>Safety concerns and harmful content reports.</li>
-        </ul>
-      </section>
+type SupportPageProps = {
+  searchParams?: Promise<{
+    lang?: string | string[];
+  }>;
+};
 
-      <section>
-        <h2>Contact</h2>
-        <p>
-          Email: <a href={`mailto:${PUBLIC_SITE.supportEmail}`}>{PUBLIC_SITE.supportEmail}</a>
+function renderSection(section: PublicSection, index: number) {
+  const HeadingTag = section.level === 3 ? "h3" : "h2";
+
+  return (
+    <section key={`${section.heading}-${index}`} style={{ display: "grid", gap: "0.5rem" }}>
+      <HeadingTag style={{ margin: 0 }}>{section.heading}</HeadingTag>
+      {section.paragraphs?.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
         </p>
-        <p>
-          Please include device/OS details, app version, and screenshots when reporting bugs to
-          help us respond faster.
-        </p>
-      </section>
-    </PublicPageShell>
+      ))}
+      {section.bullets ? (
+        <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "grid", gap: "0.35rem" }}>
+          {section.bullets.map((bullet) => (
+            <li key={bullet}>{bullet}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
+export default async function SupportPage({ searchParams }: SupportPageProps) {
+  const params = (await searchParams) ?? {};
+  const lang = normalizePublicLang(params.lang);
+  const content = PUBLIC_PAGES_CONTENT.support[lang];
+
+  return (
+    <PublicPageShell
+      title={content.title}
+      lastUpdatedLabel={content.lastUpdatedLabel}
+      currentLang={lang}
+      pathname="/support"
+    >
+      {content.introParagraphs.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
+        </p>
+      ))}
+      {content.sections.map(renderSection)}
+    </PublicPageShell>
+  );
+}

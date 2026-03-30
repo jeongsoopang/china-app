@@ -1,68 +1,63 @@
 import type { Metadata } from "next";
 import { PUBLIC_SITE } from "../../config/public-site";
+import {
+  PUBLIC_PAGES_CONTENT,
+  normalizePublicLang,
+  type PublicSection
+} from "../public-pages-content";
 import { PublicPageShell } from "../public-page-shell";
 
 export const metadata: Metadata = {
-  title: `Terms of Service | ${PUBLIC_SITE.siteName}`,
+  title: `이용약관 | ${PUBLIC_SITE.siteName}`,
   description: `Terms of Service for ${PUBLIC_SITE.siteName}`
 };
 
-export default function TermsPage() {
+type TermsPageProps = {
+  searchParams?: Promise<{
+    lang?: string | string[];
+  }>;
+};
+
+function renderSection(section: PublicSection, index: number) {
+  const HeadingTag = section.level === 3 ? "h3" : "h2";
+
   return (
-    <PublicPageShell
-      title="Terms of Service"
-      description="By using LUCL, you agree to these basic service terms."
-    >
-      <section>
-        <h2>Acceptable Use</h2>
-        <p>
-          You may use LUCL to participate in community discussions, share content, and interact
-          with other users in a lawful and respectful way.
+    <section key={`${section.heading}-${index}`} style={{ display: "grid", gap: "0.5rem" }}>
+      <HeadingTag style={{ margin: 0 }}>{section.heading}</HeadingTag>
+      {section.paragraphs?.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
         </p>
-      </section>
-
-      <section>
-        <h2>Prohibited Behavior</h2>
-        <ul>
-          <li>Harassment, hate speech, threats, or abusive conduct.</li>
-          <li>Spam, fraud, impersonation, or misleading content.</li>
-          <li>Unauthorized access attempts or service disruption.</li>
-          <li>Posting content that violates law or third-party rights.</li>
+      ))}
+      {section.bullets ? (
+        <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "grid", gap: "0.35rem" }}>
+          {section.bullets.map((bullet) => (
+            <li key={bullet}>{bullet}</li>
+          ))}
         </ul>
-      </section>
-
-      <section>
-        <h2>Account and Content Responsibility</h2>
-        <p>
-          You are responsible for activity on your account and for content you post. Keep your
-          account credentials secure and avoid sharing access with others.
-        </p>
-      </section>
-
-      <section>
-        <h2>Moderation and Enforcement</h2>
-        <p>
-          LUCL may review reports and apply moderation actions, including content limitation,
-          removal, or account restrictions, when necessary for safety and policy enforcement.
-        </p>
-      </section>
-
-      <section>
-        <h2>Service Changes</h2>
-        <p>
-          Features may be modified, suspended, or discontinued at any time to improve service,
-          address safety concerns, or meet legal obligations.
-        </p>
-      </section>
-
-      <section>
-        <h2>Contact</h2>
-        <p>
-          Questions about these terms can be sent to{" "}
-          <a href={`mailto:${PUBLIC_SITE.supportEmail}`}>{PUBLIC_SITE.supportEmail}</a>.
-        </p>
-      </section>
-    </PublicPageShell>
+      ) : null}
+    </section>
   );
 }
 
+export default async function TermsPage({ searchParams }: TermsPageProps) {
+  const params = (await searchParams) ?? {};
+  const lang = normalizePublicLang(params.lang);
+  const content = PUBLIC_PAGES_CONTENT.terms[lang];
+
+  return (
+    <PublicPageShell
+      title={content.title}
+      lastUpdatedLabel={content.lastUpdatedLabel}
+      currentLang={lang}
+      pathname="/terms"
+    >
+      {content.introParagraphs.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
+        </p>
+      ))}
+      {content.sections.map(renderSection)}
+    </PublicPageShell>
+  );
+}

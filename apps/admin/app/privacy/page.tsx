@@ -1,62 +1,63 @@
 import type { Metadata } from "next";
 import { PUBLIC_SITE } from "../../config/public-site";
+import {
+  PUBLIC_PAGES_CONTENT,
+  normalizePublicLang,
+  type PublicSection
+} from "../public-pages-content";
 import { PublicPageShell } from "../public-page-shell";
 
 export const metadata: Metadata = {
-  title: `Privacy Policy | ${PUBLIC_SITE.siteName}`,
+  title: `개인정보처리방침 | ${PUBLIC_SITE.siteName}`,
   description: `Privacy Policy for ${PUBLIC_SITE.siteName}`
 };
 
-export default function PrivacyPage() {
+type PrivacyPageProps = {
+  searchParams?: Promise<{
+    lang?: string | string[];
+  }>;
+};
+
+function renderSection(section: PublicSection, index: number) {
+  const HeadingTag = section.level === 3 ? "h3" : "h2";
+
   return (
-    <PublicPageShell
-      title="Privacy Policy"
-      description="This page explains what information LUCL currently handles and how it is used."
-    >
-      <section>
-        <h2>Information We Collect</h2>
-        <ul>
-          <li>Account information: sign-in email and basic authentication identifiers.</li>
-          <li>Profile information: display name, avatar/profile fields, and related settings.</li>
-          <li>
-            School verification information: school email and verification status/history when you
-            use school verification.
-          </li>
-          <li>Community activity: posts, comments, reports, and moderation-related records.</li>
-          <li>Uploaded content: images and other content you choose to upload in-app.</li>
-          <li>
-            Notification-related data: in-app notification records and related reference metadata.
-          </li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>How We Use Information</h2>
-        <ul>
-          <li>To provide account access and core community features.</li>
-          <li>To operate moderation, abuse reporting, and safety workflows.</li>
-          <li>To display user-generated content and account/profile state.</li>
-          <li>To maintain service reliability and resolve user support requests.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Feature Status and Changes</h2>
-        <p>
-          Some features, including parts of verification and communication workflows, may change as
-          the service evolves. This policy may be updated over time to reflect product and legal
-          requirements.
+    <section key={`${section.heading}-${index}`} style={{ display: "grid", gap: "0.5rem" }}>
+      <HeadingTag style={{ margin: 0 }}>{section.heading}</HeadingTag>
+      {section.paragraphs?.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
         </p>
-      </section>
-
-      <section>
-        <h2>Support Contact</h2>
-        <p>
-          For privacy or data requests, contact us at{" "}
-          <a href={`mailto:${PUBLIC_SITE.supportEmail}`}>{PUBLIC_SITE.supportEmail}</a>.
-        </p>
-      </section>
-    </PublicPageShell>
+      ))}
+      {section.bullets ? (
+        <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "grid", gap: "0.35rem" }}>
+          {section.bullets.map((bullet) => (
+            <li key={bullet}>{bullet}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
+export default async function PrivacyPage({ searchParams }: PrivacyPageProps) {
+  const params = (await searchParams) ?? {};
+  const lang = normalizePublicLang(params.lang);
+  const content = PUBLIC_PAGES_CONTENT.privacy[lang];
+
+  return (
+    <PublicPageShell
+      title={content.title}
+      lastUpdatedLabel={content.lastUpdatedLabel}
+      currentLang={lang}
+      pathname="/privacy"
+    >
+      {content.introParagraphs.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
+        </p>
+      ))}
+      {content.sections.map(renderSection)}
+    </PublicPageShell>
+  );
+}

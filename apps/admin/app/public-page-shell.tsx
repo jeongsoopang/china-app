@@ -1,13 +1,18 @@
+import Link from "next/link";
 import { PUBLIC_SITE } from "../config/public-site";
+import { PUBLIC_LANG_LABELS, type PublicLang } from "./public-pages-content";
 
 type PublicPageShellProps = {
   title: string;
   description?: string;
+  lastUpdatedLabel?: string;
+  currentLang: PublicLang;
+  pathname: string;
   children: React.ReactNode;
 };
 
 export function PublicPageShell(props: PublicPageShellProps) {
-  const { title, description, children } = props;
+  const { title, description, lastUpdatedLabel, currentLang, pathname, children } = props;
 
   return (
     <main
@@ -33,8 +38,50 @@ export function PublicPageShell(props: PublicPageShellProps) {
             gap: "0.75rem"
           }}
         >
-          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>{PUBLIC_SITE.siteName}</p>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "1rem"
+            }}
+          >
+            <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>{PUBLIC_SITE.siteName}</p>
+            <div
+              aria-label="language toggle"
+              style={{
+                display: "inline-flex",
+                border: "1px solid #cbd5e1",
+                borderRadius: 999,
+                overflow: "hidden"
+              }}
+            >
+              {(["ko", "en"] as const).map((lang) => {
+                const active = lang === currentLang;
+                return (
+                  <Link
+                    key={lang}
+                    href={`${pathname}?lang=${lang}`}
+                    style={{
+                      padding: "0.35rem 0.65rem",
+                      fontSize: 12,
+                      textDecoration: "none",
+                      color: active ? "#ffffff" : "#334155",
+                      background: active ? "#0f172a" : "#ffffff",
+                      fontWeight: 600
+                    }}
+                  >
+                    {PUBLIC_LANG_LABELS[lang]}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
           <h1 style={{ margin: 0 }}>{title}</h1>
+          {lastUpdatedLabel ? (
+            <p style={{ margin: 0, color: "#475569", fontSize: 13 }}>{lastUpdatedLabel}</p>
+          ) : null}
           {description ? <p style={{ margin: 0 }}>{description}</p> : null}
         </section>
 

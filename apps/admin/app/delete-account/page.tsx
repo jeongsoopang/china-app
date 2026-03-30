@@ -1,58 +1,63 @@
 import type { Metadata } from "next";
 import { PUBLIC_SITE } from "../../config/public-site";
+import {
+  PUBLIC_PAGES_CONTENT,
+  normalizePublicLang,
+  type PublicSection
+} from "../public-pages-content";
 import { PublicPageShell } from "../public-page-shell";
 
 export const metadata: Metadata = {
-  title: `Delete Account | ${PUBLIC_SITE.siteName}`,
-  description: `Account deletion and deactivation information for ${PUBLIC_SITE.siteName}`
+  title: `계정 삭제 안내 | ${PUBLIC_SITE.siteName}`,
+  description: `Delete account information for ${PUBLIC_SITE.siteName}`
 };
 
-export default function DeleteAccountPage() {
+type DeleteAccountPageProps = {
+  searchParams?: Promise<{
+    lang?: string | string[];
+  }>;
+};
+
+function renderSection(section: PublicSection, index: number) {
+  const HeadingTag = section.level === 3 ? "h3" : "h2";
+
   return (
-    <PublicPageShell
-      title="Delete Account"
-      description="How to request account deletion/deactivation for LUCL."
-    >
-      <section>
-        <h2>Delete from the App</h2>
-        <p>
-          You can request account deletion/deactivation directly from the app settings via
-          <strong> 계정 삭제하기 / Delete Account</strong>.
+    <section key={`${section.heading}-${index}`} style={{ display: "grid", gap: "0.5rem" }}>
+      <HeadingTag style={{ margin: 0 }}>{section.heading}</HeadingTag>
+      {section.paragraphs?.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
         </p>
-      </section>
-
-      <section>
-        <h2>If You Cannot Access the App</h2>
-        <p>
-          If you no longer have app access, contact{" "}
-          <a href={`mailto:${PUBLIC_SITE.supportEmail}`}>{PUBLIC_SITE.supportEmail}</a> and request
-          account deletion support.
-        </p>
-      </section>
-
-      <section>
-        <h2>How Data Is Handled</h2>
-        <ul>
-          <li>Some user-owned records may be deleted as part of cleanup.</li>
-          <li>
-            Some profile-related data may be anonymized/deactivated when full immediate deletion is
-            not operationally safe.
-          </li>
-          <li>
-            Certain records may be retained when required for legal, security, fraud prevention, or
-            operational compliance reasons.
-          </li>
+      ))}
+      {section.bullets ? (
+        <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "grid", gap: "0.35rem" }}>
+          {section.bullets.map((bullet) => (
+            <li key={bullet}>{bullet}</li>
+          ))}
         </ul>
-      </section>
-
-      <section>
-        <h2>Important Note</h2>
-        <p>
-          LUCL account deletion flows may evolve as backend systems are improved. This page is
-          updated as deletion processes are refined.
-        </p>
-      </section>
-    </PublicPageShell>
+      ) : null}
+    </section>
   );
 }
 
+export default async function DeleteAccountPage({ searchParams }: DeleteAccountPageProps) {
+  const params = (await searchParams) ?? {};
+  const lang = normalizePublicLang(params.lang);
+  const content = PUBLIC_PAGES_CONTENT.deleteAccount[lang];
+
+  return (
+    <PublicPageShell
+      title={content.title}
+      lastUpdatedLabel={content.lastUpdatedLabel}
+      currentLang={lang}
+      pathname="/delete-account"
+    >
+      {content.introParagraphs.map((paragraph) => (
+        <p key={paragraph} style={{ margin: 0 }}>
+          {paragraph}
+        </p>
+      ))}
+      {content.sections.map(renderSection)}
+    </PublicPageShell>
+  );
+}
