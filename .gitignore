@@ -32,3 +32,6 @@ web-build
 dist
 coverage
 .vercel
+
+# local secret files
+supabase.functions.env
