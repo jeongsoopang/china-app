@@ -39,7 +39,7 @@ begin
   new.verified_school_email := public.normalize_school_email(new.verified_school_email);
   normalized_email := new.verified_school_email;
 
-  if coalesce(new.is_school_verified, false) is false or normalized_email is null then
+  if normalized_email is null or new.verified_university_id is null then
     return new;
   end if;
 
@@ -47,7 +47,7 @@ begin
     into alive_verified_count
   from public.user_profiles up
   where up.id <> new.id
-    and coalesce(up.is_school_verified, false) is true
+    and up.verified_university_id is not null
     and public.normalize_school_email(up.verified_school_email) = normalized_email;
 
   if alive_verified_count >= 2 then
@@ -60,7 +60,7 @@ $$;
 
 drop trigger if exists trg_enforce_verified_school_email_limit on public.user_profiles;
 create trigger trg_enforce_verified_school_email_limit
-before insert or update of verified_school_email, is_school_verified
+before insert or update of verified_school_email, verified_university_id
 on public.user_profiles
 for each row
 execute function public.enforce_verified_school_email_limit();
