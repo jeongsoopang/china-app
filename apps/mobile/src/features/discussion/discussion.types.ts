@@ -2,6 +2,7 @@ import type { CommentRow, DbUserTier, PostImageRow, PostRow } from "@foryou/type
 import type { ReportReasonCode, ReportTargetType } from "@foryou/supabase";
 
 export type DiscussionMode = "post" | "qa";
+export type ThreadLanguageCode = "ko" | "en";
 
 export type ThreadPost = Pick<
   PostRow,
@@ -15,8 +16,14 @@ export type ThreadPost = Pick<
   | "like_count"
   | "view_count"
 > & {
+  original_language: ThreadLanguageCode;
   accepted_answer_comment_id: number | null;
   images: ThreadPostImage[];
+  translation: {
+    targetLanguage: ThreadLanguageCode;
+    translatedTitle: string | null;
+    translatedBody: string | null;
+  } | null;
 };
 
 export type ThreadPostImage = Pick<PostImageRow, "id" | "image_url" | "sort_order" | "storage_path">;

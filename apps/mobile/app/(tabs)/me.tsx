@@ -6,6 +6,7 @@ import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Image,
   Linking,
   Modal,
@@ -24,8 +25,11 @@ import {
   type PanGestureHandlerGestureEvent,
   type PanGestureHandlerStateChangeEvent
 } from "react-native-gesture-handler";
+import { PUBLIC_WEB_LINKS } from "../../src/config/public-links";
+import { deleteMyAccount } from "../../src/features/auth/account-deletion.service";
 import { mapAuthError } from "../../src/features/auth/auth.service";
 import { useAuthSession } from "../../src/features/auth/auth-session";
+import { useAppLanguage } from "../../src/features/language/app-language";
 import { supabase } from "../../src/lib/supabase/client";
 import { CityHeroHeader } from "../../src/ui/city-hero-header";
 import { TierMarker, normalizeTierForDisplay } from "../../src/ui/tier-marker";
@@ -286,6 +290,18 @@ function formatDate(value: string): string {
   return date.toLocaleDateString();
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  return fallback;
+}
+
 type BronzeQuota = {
   remainingQuestions: number;
   remainingComments: number;
@@ -478,6 +494,7 @@ function BronzeTokenCard({
 
 export default function MeScreen() {
   const auth = useAuthSession();
+  const { languageMode, resolvedLanguage, setLanguageMode } = useAppLanguage();
   const [localError, setLocalError] = useState<string | null>(null);
   const [verifiedUniversity, setVerifiedUniversity] = useState<VerifiedUniversitySummary | null>(null);
   const [isLoadingUniversity, setIsLoadingUniversity] = useState(false);
@@ -513,6 +530,8 @@ export default function MeScreen() {
 
   const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft | null>(null);
   const [isFeedbackFallbackOpen, setIsFeedbackFallbackOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const isKo = resolvedLanguage === "ko";
 
   const isSigningOut = auth.action === "signing_out";
   const authUserId = auth.user?.authUser.id ?? null;
@@ -892,6 +911,50 @@ export default function MeScreen() {
       setIsSettingsOpen(false);
     } catch {
       setIsFeedbackFallbackOpen(true);
+    }
+  }
+
+  async function openPublicPage(url: string) {
+    setLocalError(null);
+
+    try {
+      const canOpen = await Linking.canOpenURL(url).catch(() => false);
+      if (!canOpen) {
+        setLocalError(
+          isKo
+            ? "링크를 열 수 없습니다. 브라우저에서 직접 접속해주세요."
+            : "Unable to open the link. Please open it directly in your browser."
+        );
+        return;
+      }
+
+      await Linking.openURL(url);
+      setIsSettingsOpen(false);
+    } catch {
+      setLocalError(
+        isKo
+          ? "링크를 열 수 없습니다. 브라우저에서 직접 접속해주세요."
+          : "Unable to open the link. Please open it directly in your browser."
+      );
+    }
+  }
+
+  async function confirmDeleteAccount() {
+    if (isDeletingAccount) {
+      return;
+    }
+
+    setLocalError(null);
+    setIsDeletingAccount(true);
+
+    try {
+      await deleteMyAccount();
+      setIsSettingsOpen(false);
+      await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+    } catch (error) {
+      setLocalError(toErrorMessage(error, isKo ? "계정 삭제에 실패했습니다." : "Failed to delete account."));
+    } finally {
+      setIsDeletingAccount(false);
     }
   }
 
@@ -1310,16 +1373,16 @@ export default function MeScreen() {
 
   const schoolLabel =
     isLoadingUniversity
-      ? "Loading..."
+      ? isKo ? "불러오는 중..." : "Loading..."
       : verifiedUniversity?.shortName ??
         verifiedUniversity?.name ??
-        (verifiedUniversityId ? "Verified" : "Not linked");
+        (verifiedUniversityId ? (isKo ? "인증됨" : "Verified") : isKo ? "연결 안 됨" : "Not linked");
 
   return (
     <>
       <ScrollView contentContainerStyle={styles.container}>
         <CityHeroHeader
-          title="My"
+          title={isKo ? "내 정보" : "My"}
           height={164}
           imageOffsetY={-10}
           contentOffsetY={8}
@@ -1369,13 +1432,17 @@ export default function MeScreen() {
             <View style={styles.profileSummaryPrimaryRow}>
               <TierSummaryCard value={canonicalTier} />
               <SummaryCard label="Points" value={String(points)} />
-              <SummaryCard label="School" value={schoolLabel} />
-              <SummaryCard label="Followers" value={String(followerCount)} />
+              <SummaryCard label={isKo ? "학교" : "School"} value={schoolLabel} />
+              <SummaryCard label={isKo ? "팔로워" : "Followers"} value={String(followerCount)} />
             </View>
             {isBronzeTier ? (
               <View style={styles.bronzeTokenInline}>
                 <Text style={styles.bronzeTokenInlineText}>
-                  Token 질문 {bronzeQuota?.remainingQuestions ?? 1} · 답글 {bronzeQuota?.remainingComments ?? 5}
+                  {isKo
+                    ? `토큰 질문 ${bronzeQuota?.remainingQuestions ?? 1} · 답글 ${bronzeQuota?.remainingComments ?? 5}`
+                    : `Token Questions ${bronzeQuota?.remainingQuestions ?? 1} · Replies ${
+                        bronzeQuota?.remainingComments ?? 5
+                      }`}
                 </Text>
               </View>
             ) : null}
@@ -1384,7 +1451,7 @@ export default function MeScreen() {
 
         <View style={styles.infoCard}>
           <View style={styles.listHeaderRow}>
-            <Text style={styles.sectionTitle}>내가 쓴 글</Text>
+            <Text style={styles.sectionTitle}>{isKo ? "내가 쓴 글" : "My Posts"}</Text>
             <Link
               asChild
               href={{
@@ -1393,7 +1460,7 @@ export default function MeScreen() {
               }}
             >
               <Pressable style={styles.moreButton}>
-                <Text style={styles.moreButtonLabel}>더보기</Text>
+                <Text style={styles.moreButtonLabel}>{isKo ? "더보기" : "See more"}</Text>
               </Pressable>
             </Link>
           </View>
@@ -1401,7 +1468,9 @@ export default function MeScreen() {
           {isLoadingMyPosts ? <Text style={styles.helperInlineText}>Loading posts...</Text> : null}
           {myPostsError ? <Text style={styles.errorText}>{myPostsError}</Text> : null}
           {!isLoadingMyPosts && myPosts.length === 0 && !myPostsError ? (
-            <Text style={styles.helperInlineText}>아직 작성한 글이 없습니다.</Text>
+            <Text style={styles.helperInlineText}>
+              {isKo ? "아직 작성한 글이 없습니다." : "No posts yet."}
+            </Text>
           ) : null}
 
           {myPosts.map((post) => {
@@ -1454,7 +1523,7 @@ export default function MeScreen() {
                       }}
                     >
                       <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
-                      <Text style={styles.myPostDate}>Views {post.viewCount}</Text>
+                      <Text style={styles.myPostDate}>{isKo ? `조회 ${post.viewCount}` : `Views ${post.viewCount}`}</Text>
                     </View>
                   </View>
                 </Pressable>
@@ -1464,17 +1533,19 @@ export default function MeScreen() {
         </View>
 
         <View style={styles.actionsCard}>
-          <Text style={styles.sectionTitle}>Actions</Text>
+          <Text style={styles.sectionTitle}>{isKo ? "작업" : "Actions"}</Text>
 
           {!isSchoolVerified ? (
             <Link asChild href="/verification/school">
               <Pressable style={styles.primaryButton}>
-                <Text style={styles.primaryButtonLabel}>School Verification</Text>
+                <Text style={styles.primaryButtonLabel}>
+                  {isKo ? "학교 인증" : "School Verification"}
+                </Text>
               </Pressable>
             </Link>
           ) : (
             <Text style={styles.helperInlineText}>
-              Your school verification is complete.
+              {isKo ? "학교 인증이 완료되었습니다." : "Your school verification is complete."}
             </Text>
           )}
 
@@ -1484,7 +1555,7 @@ export default function MeScreen() {
             style={[styles.secondaryButton, isSigningOut && styles.buttonDisabled]}
           >
             <Text style={styles.secondaryButtonLabel}>
-              {isSigningOut ? "Signing Out..." : "Sign Out"}
+              {isSigningOut ? (isKo ? "로그아웃 중..." : "Signing Out...") : isKo ? "로그아웃" : "Sign Out"}
             </Text>
           </Pressable>
         </View>
@@ -1498,7 +1569,7 @@ export default function MeScreen() {
       <Modal visible={isSettingsOpen} transparent animationType="fade" onRequestClose={() => setIsSettingsOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setIsSettingsOpen(false)}>
           <Pressable style={styles.settingsSheet} onPress={() => {}}>
-            <Text style={styles.settingsSheetTitle}>Settings</Text>
+            <Text style={styles.settingsSheetTitle}>{isKo ? "설정" : "Settings"}</Text>
 
             <Pressable
               style={styles.settingsRow}
@@ -1511,8 +1582,12 @@ export default function MeScreen() {
                 <Ionicons name="person-outline" size={18} color={colors.textPrimary} />
               </View>
               <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>My Info</Text>
-                <Text style={styles.settingsRowSubtitle}>프로필 및 학교 인증 정보를 확인합니다.</Text>
+                <Text style={styles.settingsRowTitle}>{isKo ? "내 정보" : "My Info"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo
+                    ? "프로필 및 학교 인증 정보를 확인합니다."
+                    : "Check your profile and school verification info."}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
@@ -1528,8 +1603,10 @@ export default function MeScreen() {
                 <Ionicons name="create-outline" size={18} color={colors.textPrimary} />
               </View>
               <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>프로필 설정</Text>
-                <Text style={styles.settingsRowSubtitle}>사용자명을 변경할 수 있습니다.</Text>
+                <Text style={styles.settingsRowTitle}>{isKo ? "프로필 설정" : "Profile Settings"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "사용자명을 변경할 수 있습니다." : "You can change your user name."}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
@@ -1539,10 +1616,76 @@ export default function MeScreen() {
                 <Ionicons name="notifications-outline" size={18} color={colors.textPrimary} />
               </View>
               <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>알림</Text>
-                <Text style={styles.settingsRowSubtitle}>알림을 놓치지 않도록 알림을 허용하세요</Text>
+                <Text style={styles.settingsRowTitle}>{isKo ? "알림" : "Notifications"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo
+                    ? "알림을 놓치지 않도록 알림을 허용하세요"
+                    : "Allow notifications so you don't miss updates."}
+                </Text>
               </View>
               <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} />
+            </View>
+
+            <View style={styles.settingsRow}>
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="language-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsRowTitle}>Language</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "앱 표시 언어를 선택합니다." : "Choose app display language."}
+                </Text>
+                <View style={styles.languageOptionRow}>
+                  <Pressable
+                    onPress={() => void setLanguageMode("system")}
+                    style={[
+                      styles.languageOptionChip,
+                      languageMode === "system" && styles.languageOptionChipSelected
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionChipLabel,
+                        languageMode === "system" && styles.languageOptionChipLabelSelected
+                      ]}
+                    >
+                      System
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void setLanguageMode("ko")}
+                    style={[
+                      styles.languageOptionChip,
+                      languageMode === "ko" && styles.languageOptionChipSelected
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionChipLabel,
+                        languageMode === "ko" && styles.languageOptionChipLabelSelected
+                      ]}
+                    >
+                      한국어
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void setLanguageMode("en")}
+                    style={[
+                      styles.languageOptionChip,
+                      languageMode === "en" && styles.languageOptionChipSelected
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionChipLabel,
+                        languageMode === "en" && styles.languageOptionChipLabelSelected
+                      ]}
+                    >
+                      English
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
 
             <View style={styles.settingsRow}>
@@ -1550,8 +1693,12 @@ export default function MeScreen() {
                 <Ionicons name="lock-closed-outline" size={18} color={colors.textPrimary} />
               </View>
               <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>비공개 프로필</Text>
-                <Text style={styles.settingsRowSubtitle}>비공개 시 팔로워만 내 프로필을 볼 수 있습니다.</Text>
+                <Text style={styles.settingsRowTitle}>{isKo ? "비공개 프로필" : "Private Profile"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo
+                    ? "비공개 시 팔로워만 내 프로필을 볼 수 있습니다."
+                    : "When private, only followers can view your profile."}
+                </Text>
               </View>
               <Switch
                 value={isPrivateProfile}
@@ -1567,8 +1714,120 @@ export default function MeScreen() {
                 <Ionicons name="mail-outline" size={18} color={colors.textPrimary} />
               </View>
               <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>문의하기</Text>
-                <Text style={styles.settingsRowSubtitle}>버그 신고 및 기능 요청</Text>
+                <Text style={styles.settingsRowTitle}>{isKo ? "문의하기" : "Contact Us"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "버그 신고 및 기능 요청" : "Report bugs or request features"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              style={styles.settingsRow}
+              onPress={() => {
+                void openPublicPage(PUBLIC_WEB_LINKS.privacy);
+              }}
+            >
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsRowTitle}>{isKo ? "개인정보처리방침" : "Privacy Policy"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "웹에서 정책을 확인합니다." : "View the policy on the web."}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              style={styles.settingsRow}
+              onPress={() => {
+                void openPublicPage(PUBLIC_WEB_LINKS.terms);
+              }}
+            >
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="document-text-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsRowTitle}>{isKo ? "이용약관" : "Terms of Service"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "서비스 이용약관을 확인합니다." : "Read the service terms."}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              style={styles.settingsRow}
+              onPress={() => {
+                void openPublicPage(PUBLIC_WEB_LINKS.support);
+              }}
+            >
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="help-circle-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsRowTitle}>{isKo ? "고객지원" : "Support"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "고객지원 및 문의 페이지를 엽니다." : "Open the support and contact page."}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              style={styles.settingsRow}
+              onPress={() => {
+                void openPublicPage(PUBLIC_WEB_LINKS.deleteAccount);
+              }}
+            >
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="trash-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsRowTitle}>{isKo ? "계정 삭제 요청" : "Delete Account Request"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo ? "계정 삭제 요청 안내 페이지를 엽니다." : "Open the account deletion request page."}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              style={styles.settingsRow}
+              onPress={() => {
+                Alert.alert(
+                  isKo ? "계정 삭제 확인" : "Confirm Account Deletion",
+                  isKo
+                    ? "계정을 삭제하면 복구할 수 없습니다. 정말 삭제하시겠습니까?"
+                    : "Deleted accounts cannot be recovered. Do you want to continue?",
+                  [
+                    {
+                      text: isKo ? "취소" : "Cancel",
+                      style: "cancel"
+                    },
+                    {
+                      text: isKo ? "삭제하기" : "Delete",
+                      style: "destructive",
+                      onPress: () => {
+                        void confirmDeleteAccount();
+                      }
+                    }
+                  ]
+                );
+              }}
+            >
+              <View style={styles.settingsIconWrap}>
+                <Ionicons name="warning-outline" size={18} color={colors.error} />
+              </View>
+              <View style={styles.settingsRowTextBlock}>
+                <Text style={styles.settingsDangerRowTitle}>{isKo ? "계정 삭제하기" : "Delete Account"}</Text>
+                <Text style={styles.settingsRowSubtitle}>
+                  {isKo
+                    ? "계정을 복구할 수 없도록 삭제합니다."
+                    : "Delete your account permanently and irreversibly."}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
@@ -1582,7 +1841,7 @@ export default function MeScreen() {
             <Text style={styles.settingsSheetTitle}>My Info</Text>
 
             <View style={styles.myInfoCard}>
-              <Text style={styles.myInfoTitle}>프로필 정보</Text>
+              <Text style={styles.myInfoTitle}>{isKo ? "프로필 정보" : "Profile Information"}</Text>
               <InfoRow label="User Name" value={displayName} />
               <InfoRow label="Email" value={email} />
               <InfoRow label="Verified Email" value={verifiedSchoolEmail ?? "-"} />
@@ -1601,7 +1860,7 @@ export default function MeScreen() {
 
             <View style={styles.profileModalActions}>
               <Pressable style={styles.primaryButtonCompact} onPress={() => setIsMyInfoOpen(false)}>
-                <Text style={styles.primaryButtonLabel}>닫기</Text>
+                <Text style={styles.primaryButtonLabel}>{isKo ? "닫기" : "Close"}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -1790,10 +2049,11 @@ export default function MeScreen() {
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setIsFeedbackFallbackOpen(false)}>
           <Pressable style={styles.feedbackModalCard} onPress={() => {}}>
-            <Text style={styles.settingsSheetTitle}>문의하기</Text>
+            <Text style={styles.settingsSheetTitle}>{isKo ? "문의하기" : "Contact Us"}</Text>
             <Text style={styles.feedbackFallbackHint}>
-              현재 환경에서는 메일 앱을 바로 열 수 없습니다.
-              아래 정보를 복사해서 직접 보내면 됩니다.
+              {isKo
+                ? "현재 환경에서는 메일 앱을 바로 열 수 없습니다.\n아래 정보를 복사해서 직접 보내면 됩니다."
+                : "Your mail app cannot be opened in this environment.\nPlease copy the details below and send manually."}
             </Text>
 
             <View style={styles.feedbackBlock}>
@@ -1828,6 +2088,7 @@ export default function MeScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
     </>
   );
 }
@@ -2220,8 +2481,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     alignItems: "center"
   },
+  dangerButtonCompact: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.error,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    alignItems: "center"
+  },
   secondaryButtonLabel: {
     color: colors.textPrimary,
+    fontWeight: "700",
+    fontSize: typography.bodySmall
+  },
+  dangerButtonLabel: {
+    color: "#f8fafc",
     fontWeight: "700",
     fontSize: typography.bodySmall
   },
@@ -2344,9 +2617,40 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.textPrimary
   },
+  settingsDangerRowTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.error
+  },
   settingsRowSubtitle: {
     fontSize: typography.bodySmall,
     color: colors.textMuted
+  },
+  languageOptionRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap"
+  },
+  languageOptionChip: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: colors.surface
+  },
+  languageOptionChipSelected: {
+    borderColor: colors.textPrimary,
+    backgroundColor: colors.textPrimary
+  },
+  languageOptionChipLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textPrimary
+  },
+  languageOptionChipLabelSelected: {
+    color: "#f8fafc"
   },
   fieldGroup: {
     gap: 6

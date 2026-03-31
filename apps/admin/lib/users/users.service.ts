@@ -23,6 +23,10 @@ export type AdminUserUpdateInput = {
   role: string;
 };
 
+export type AdminUserDeleteInput = {
+  userId: string;
+};
+
 type RawUserProfileRow = {
   id: string;
   display_name: string | null;
@@ -271,6 +275,44 @@ export async function updateAdminUser(input: AdminUserUpdateInput): Promise<void
       actorUserId: actor.authUser.id,
       targetUserId: input.userId,
       changedFields,
+      at: new Date().toISOString()
+    })
+  );
+}
+
+export async function deleteAdminUser(input: AdminUserDeleteInput): Promise<void> {
+  const actor = await requireGrandMasterAccess();
+  const client = createAdminServiceClient();
+
+  if (input.userId === actor.authUser.id) {
+    throw new Error("You cannot delete the currently signed-in admin account.");
+  }
+
+  const existingResult = await client
+    .from("user_profiles")
+    .select("id")
+    .eq("id", input.userId)
+    .maybeSingle();
+
+  if (existingResult.error) {
+    throw new Error(errorMessageFromUnknown(existingResult.error, "Failed to load user."));
+  }
+
+  if (!existingResult.data) {
+    throw new Error("User not found.");
+  }
+
+  const deleteResult = await client.auth.admin.deleteUser(input.userId, false);
+
+  if (deleteResult.error) {
+    throw new Error(errorMessageFromUnknown(deleteResult.error, "Failed to delete user account."));
+  }
+
+  console.info(
+    JSON.stringify({
+      event: "admin_user_delete",
+      actorUserId: actor.authUser.id,
+      targetUserId: input.userId,
       at: new Date().toISOString()
     })
   );

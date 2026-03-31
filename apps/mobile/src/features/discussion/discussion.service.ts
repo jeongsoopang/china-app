@@ -32,6 +32,9 @@ function normalizeNumericId(value: unknown): number | null {
 }
 
 function toThreadPost(row: PostRow): ThreadPost {
+  const originalLanguage: ThreadPost["original_language"] =
+    row.original_language === "en" ? "en" : "ko";
+
   return {
     id: row.id,
     author_id: row.author_id,
@@ -42,8 +45,10 @@ function toThreadPost(row: PostRow): ThreadPost {
     like_count: row.like_count,
     view_count: row.view_count,
     created_at: row.created_at,
+    original_language: originalLanguage,
     accepted_answer_comment_id: row.accepted_answer_comment_id,
-    images: []
+    images: [],
+    translation: null
   };
 }
 
@@ -218,8 +223,14 @@ function parseToggleLikeResult(
 
 export async function fetchThreadData(
   postId: number,
-  mode: DiscussionMode
+  mode: DiscussionMode,
+  resolvedLanguage?: "ko" | "en"
 ): Promise<ThreadData> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) {
+    throw new Error("Sign in is required to view post details.");
+  }
+
   const [
     { data: postData, error: postError },
     { data: commentsData, error: commentsError },
@@ -256,9 +267,40 @@ export async function fetchThreadData(
     throw imagesError;
   }
 
-  const post = {
+  const originalLanguage: ThreadPost["original_language"] =
+    postData.original_language === "en" ? "en" : "ko";
+  let translation: ThreadPost["translation"] = null;
+
+  if (resolvedLanguage && resolvedLanguage !== originalLanguage) {
+    const { data: translationData, error: translationError } = await supabase
+      .from("post_translations")
+      .select("target_language, translated_title, translated_body")
+      .eq("post_id", postId)
+      .eq("status", "completed")
+      .eq("target_language", resolvedLanguage)
+      .eq("source_updated_at", postData.updated_at)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (translationError) {
+      throw translationError;
+    }
+
+    if (translationData) {
+      translation = {
+        targetLanguage: translationData.target_language === "ko" ? "ko" : "en",
+        translatedTitle: translationData.translated_title,
+        translatedBody: translationData.translated_body
+      };
+    }
+  }
+
+  const post: ThreadPost = {
     ...toThreadPost(postData),
-    images: (imagesData ?? []).map(toThreadPostImage)
+    original_language: originalLanguage,
+    images: (imagesData ?? []).map(toThreadPostImage),
+    translation
   };
   const commentRows = commentsData ?? [];
   const authorIds = Array.from(new Set(commentRows.map((comment) => comment.author_id)));

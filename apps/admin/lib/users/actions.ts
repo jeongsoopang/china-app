@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateAdminUser } from "./users.service";
+import { redirect } from "next/navigation";
+import { deleteAdminUser, updateAdminUser } from "./users.service";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -27,4 +28,26 @@ export async function updateUserProfileAction(formData: FormData): Promise<void>
   });
 
   revalidatePath("/users");
+}
+
+export async function deleteUserAccountAction(formData: FormData): Promise<void> {
+  const userId = parseRequiredText(formData.get("userId"), "userId");
+  const confirmed = formData.get("confirmDelete");
+
+  if (!uuidPattern.test(userId)) {
+    redirect("/users?error=Invalid%20userId.");
+  }
+
+  if (confirmed !== "yes") {
+    redirect("/users?error=Delete%20confirmation%20is%20required.");
+  }
+
+  try {
+    await deleteAdminUser({ userId });
+    revalidatePath("/users");
+    redirect("/users?notice=User%20account%20deleted.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete user account.";
+    redirect(`/users?error=${encodeURIComponent(message)}`);
+  }
 }

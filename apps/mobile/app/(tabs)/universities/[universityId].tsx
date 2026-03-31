@@ -40,6 +40,7 @@ type AlumniContent = {
 };
 
 type SectionFilter = "all" | "life" | "study" | "qa" | "notice" | "alumni";
+type NoticeCategoryFilter = "all" | "life-notice" | "life-opportunity" | "life-info-sharing";
 type CampusSlug = "minhang" | "xuhui" | "medical" | "putuo" | "hongkou" | "songjiang";
 type ViewerTier =
   | "bronze"
@@ -95,6 +96,19 @@ const QA_CATEGORY_CARDS = [
     label: "학업"
   }
 ] as const;
+
+const CAMPUS_NOTICE_CATEGORY_SLUGS = [
+  "life-notice",
+  "life-opportunity",
+  "life-info-sharing"
+] as const;
+
+const NOTICE_CATEGORY_FILTER_OPTIONS: Array<{ value: NoticeCategoryFilter; label: string }> = [
+  { value: "all", label: "전체" },
+  { value: "life-notice", label: "공지" },
+  { value: "life-opportunity", label: "기회의 장" },
+  { value: "life-info-sharing", label: "정보 공유" }
+];
 
 const SJTU_CAMPUS_CARDS: Array<{
   slug: CampusSlug;
@@ -179,6 +193,7 @@ export default function UniversityDetailScreen() {
   }, [section]);
 
   const [filter, setFilter] = useState<SectionFilter>(initialSectionFilter);
+  const [noticeCategoryFilter, setNoticeCategoryFilter] = useState<NoticeCategoryFilter>("all");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [postsError, setPostsError] = useState<string | null>(null);
@@ -213,6 +228,7 @@ export default function UniversityDetailScreen() {
 
   useEffect(() => {
     setFilter(initialSectionFilter);
+    setNoticeCategoryFilter("all");
   }, [initialSectionFilter]);
 
   const universityChineseName = useMemo(() => {
@@ -626,15 +642,19 @@ export default function UniversityDetailScreen() {
       if (filter === "notice") {
         query = query
           .eq("sections.code", "life")
-          .eq("categories.slug", "life-notice");
+          .in("categories.slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
       } else if (filter === "all") {
         query = query
           .in("sections.code", ["life", "study", "qa"])
-          .neq("categories.slug", "life-notice");
+          .neq("categories.slug", "life-notice")
+          .neq("categories.slug", "life-opportunity")
+          .neq("categories.slug", "life-info-sharing");
       } else if (filter === "life") {
         query = query
           .eq("sections.code", "life")
-          .neq("categories.slug", "life-notice");
+          .neq("categories.slug", "life-notice")
+          .neq("categories.slug", "life-opportunity")
+          .neq("categories.slug", "life-info-sharing");
       } else {
         query = query.eq("sections.code", filter);
       }
@@ -669,15 +689,19 @@ export default function UniversityDetailScreen() {
       if (filter === "notice") {
         query = query
           .eq("sections.code", "life")
-          .eq("categories.slug", "life-notice");
+          .in("categories.slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
       } else if (filter === "all") {
         query = query
           .in("sections.code", ["life", "study", "qa"])
-          .neq("categories.slug", "life-notice");
+          .neq("categories.slug", "life-notice")
+          .neq("categories.slug", "life-opportunity")
+          .neq("categories.slug", "life-info-sharing");
       } else if (filter === "life") {
         query = query
           .eq("sections.code", "life")
-          .neq("categories.slug", "life-notice");
+          .neq("categories.slug", "life-notice")
+          .neq("categories.slug", "life-opportunity")
+          .neq("categories.slug", "life-info-sharing");
       } else {
         query = query.eq("sections.code", filter);
       }
@@ -723,16 +747,20 @@ export default function UniversityDetailScreen() {
       post_images: Array<{ image_url: string; sort_order: number | null }> | null;
     }>;
 
-    const { data: noticeCategoryRow } = await supabase
+    const { data: noticeCategoryRows } = await supabase
       .from("categories")
-      .select("id")
-      .eq("slug", "life-notice")
-      .maybeSingle();
+      .select("id, slug")
+      .in("slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
 
-    const noticeCategoryId =
-      noticeCategoryRow && typeof noticeCategoryRow.id === "number"
-        ? noticeCategoryRow.id
-        : null;
+    const noticeCategoryIds = new Set(
+      ((noticeCategoryRows ?? []) as Array<{ id: string | number }>).map((row) => String(row.id))
+    );
+    const noticeCategorySlugById = new Map<string, string>();
+    ((noticeCategoryRows ?? []) as Array<{ id: string | number; slug: string | null }>).forEach((row) => {
+      if (typeof row.slug === "string") {
+        noticeCategorySlugById.set(String(row.id), row.slug);
+      }
+    });
 
     const mapped: UniversityPost[] = rows.map((row) => ({
       id: row.id,
@@ -768,16 +796,32 @@ export default function UniversityDetailScreen() {
         : rows;
 
     const filteredRows = campusScopedRows.filter((row) => {
+      const noticeSlugFromJoin =
+        typeof row.categories?.slug === "string" ? row.categories.slug : null;
+      const noticeSlugFromCategoryId =
+        row.category_id != null ? noticeCategorySlugById.get(String(row.category_id)) ?? null : null;
+      const resolvedNoticeSlug = noticeSlugFromJoin ?? noticeSlugFromCategoryId;
       const isNoticeRow =
-        (noticeCategoryId !== null && row.category_id === noticeCategoryId) ||
-        row.categories?.slug === "life-notice";
+        (row.category_id != null && noticeCategoryIds.has(String(row.category_id))) ||
+        (resolvedNoticeSlug !== null &&
+          CAMPUS_NOTICE_CATEGORY_SLUGS.includes(
+            resolvedNoticeSlug as (typeof CAMPUS_NOTICE_CATEGORY_SLUGS)[number]
+          ));
 
       if (isSjtuCampusLanding) {
         return !isNoticeRow;
       }
 
       if (filter === "notice") {
-        return isNoticeRow;
+        if (!isNoticeRow) {
+          return false;
+        }
+
+        if (noticeCategoryFilter === "all") {
+          return true;
+        }
+
+        return resolvedNoticeSlug === noticeCategoryFilter;
       }
 
       if (filter === "all" || filter === "life") {
@@ -858,6 +902,7 @@ export default function UniversityDetailScreen() {
   }, [
     canViewCampusNotice,
     filter,
+    noticeCategoryFilter,
     isViewerUniversityLoading,
     postQueryLimit,
     university,
@@ -1210,10 +1255,12 @@ export default function UniversityDetailScreen() {
             onPress={() => {
               if (option.value === "notice") {
                 setFilter("notice");
+                setNoticeCategoryFilter("all");
                 return;
               }
 
               setFilter(option.value);
+              setNoticeCategoryFilter("all");
             }}
             style={[
               styles.filterChip,
@@ -1231,6 +1278,33 @@ export default function UniversityDetailScreen() {
           </Pressable>
         ))}
         </View>
+      ) : null}
+
+      {!isCampusLanding && filter === "notice" ? (
+        <>
+          <View style={styles.noticeCategoryDivider} />
+          <View style={styles.noticeCategoryFilterRow}>
+            {NOTICE_CATEGORY_FILTER_OPTIONS.map((option) => (
+              <Pressable
+                key={option.value}
+                onPress={() => setNoticeCategoryFilter(option.value)}
+                style={[
+                  styles.filterChip,
+                  noticeCategoryFilter === option.value && styles.filterChipSelected
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterChipLabel,
+                    noticeCategoryFilter === option.value && styles.filterChipLabelSelected
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
       ) : null}
 
       {!isCampusLanding && filter !== "alumni" && isLoading ? <Text style={styles.metaText}>Loading posts...</Text> : null}
@@ -1861,6 +1935,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs
+  },
+  noticeCategoryFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
+  },
+  noticeCategoryDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    opacity: 0.8
   },
   filterChip: {
     borderRadius: radius.pill,

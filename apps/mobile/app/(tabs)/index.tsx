@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthSession } from "../../src/features/auth/auth-session";
+import { useAppLanguage } from "../../src/features/language/app-language";
 import {
   DEFAULT_HOME_GUIDE_CONTENT,
   fetchHomeGuideContent
@@ -80,12 +81,11 @@ const CARDS: Array<{ key: ExploreCardKey; title: string; subtitle: string; route
 
 const QUICK_ACTIONS: Array<{
   key: QuickActionKey;
-  label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }> = [
-  { key: "my-school", label: "My School", icon: "school-outline" },
-  { key: "campus-notice", label: "Announcement", icon: "megaphone-outline" },
-  { key: "my-posts", label: "My Page", icon: "document-text-outline" }
+  { key: "my-school", icon: "school-outline" },
+  { key: "campus-notice", icon: "megaphone-outline" },
+  { key: "my-posts", icon: "document-text-outline" }
 ];
 
 const HOME_POPUP_HIDE_UNTIL_STORAGE_KEY = "@lucl/home_announcement_hide_until_v1";
@@ -142,6 +142,7 @@ async function readHomeGuideDismissedForever(): Promise<boolean> {
 
 export default function HomeScreen() {
   const auth = useAuthSession();
+  const { resolvedLanguage, setLanguageMode } = useAppLanguage();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const cardScrollRef = useRef<ScrollView>(null);
@@ -166,6 +167,37 @@ export default function HomeScreen() {
   const sidePadding = Math.max((width - cardWidth) / 2, spacing.lg);
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
   const hasVerifiedSchool = Boolean(verifiedUniversityId);
+  const isKo = resolvedLanguage === "ko";
+
+  function getCardTitle(key: ExploreCardKey): string {
+    if (key === "event") {
+      return isKo ? "이벤트 맛집" : "Event Hotspots";
+    }
+    if (key === "universities") {
+      return isKo ? "대학" : "Universities";
+    }
+    return isKo ? "상하이" : "Shanghai";
+  }
+
+  function getCardSubtitle(key: ExploreCardKey): string {
+    if (key === "event") {
+      return isKo ? "도시 이벤트와 로컬 하이라이트" : "City events and local highlights";
+    }
+    if (key === "universities") {
+      return isKo ? "상하이 캠퍼스 생활" : "Campus life across Shanghai";
+    }
+    return isKo ? "맛집, 장소, 교회" : "Food, place, and church";
+  }
+
+  function getQuickActionLabel(key: QuickActionKey): string {
+    if (key === "my-school") {
+      return isKo ? "내 학교" : "My School";
+    }
+    if (key === "campus-notice") {
+      return isKo ? "공지" : "Notice";
+    }
+    return isKo ? "내 글" : "My Page";
+  }
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -384,6 +416,21 @@ export default function HomeScreen() {
           contentStyle={styles.heroContentCentered}
         />
 
+        <View style={styles.languageToggleRow}>
+          <Pressable
+            onPress={() => void setLanguageMode("ko")}
+            style={[styles.languageToggleButton, isKo && styles.languageToggleButtonSelected]}
+          >
+            <Text style={[styles.languageToggleLabel, isKo && styles.languageToggleLabelSelected]}>KR</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void setLanguageMode("en")}
+            style={[styles.languageToggleButton, !isKo && styles.languageToggleButtonSelected]}
+          >
+            <Text style={[styles.languageToggleLabel, !isKo && styles.languageToggleLabelSelected]}>EN</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.logoRow}>
           {SCHOOL_LOGOS.map((school) => (
             <View key={school.key} style={styles.logoButton}>
@@ -398,13 +445,13 @@ export default function HomeScreen() {
             value={searchInput}
             onChangeText={setSearchInput}
             onSubmitEditing={submitGlobalSearch}
-            placeholder="Search across LUCL"
+            placeholder={isKo ? "LUCL 전체 검색" : "Search across LUCL"}
             placeholderTextColor={colors.textMuted}
             style={styles.searchInput}
             returnKeyType="search"
           />
           <Pressable onPress={submitGlobalSearch} style={styles.searchActionButton}>
-            <Text style={styles.searchActionButtonLabel}>Go</Text>
+            <Text style={styles.searchActionButtonLabel}>{isKo ? "검색" : "Go"}</Text>
           </Pressable>
         </View>
 
@@ -436,8 +483,8 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.cardFooter}>
-                <Text style={styles.cardTitle}>{card.title}</Text>
-                <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+                <Text style={styles.cardTitle}>{getCardTitle(card.key)}</Text>
+                <Text style={styles.cardSubtitle}>{getCardSubtitle(card.key)}</Text>
               </View>
             </Pressable>
           ))}
@@ -489,7 +536,7 @@ export default function HomeScreen() {
                     ellipsizeMode="clip"
                     style={[styles.quickActionLabel, disabled && styles.quickActionDisabledLabel]}
                   >
-                    {action.label}
+                    {getQuickActionLabel(action.key)}
                   </Text>
                 </View>
               );
@@ -511,7 +558,7 @@ export default function HomeScreen() {
         <View style={styles.homeAnnouncementBackdrop}>
           <View style={styles.homeAnnouncementCard}>
             <View style={styles.homeAnnouncementHeader}>
-              <Text style={styles.homeAnnouncementBadge}>Home Announcement</Text>
+              <Text style={styles.homeAnnouncementBadge}>{isKo ? "홈 공지" : "Home Announcement"}</Text>
               <Pressable onPress={closeAnnouncementForSession}>
                 <Ionicons name="close" size={20} color={colors.textPrimary} />
               </Pressable>
@@ -528,10 +575,12 @@ export default function HomeScreen() {
             </ScrollView>
             <View style={styles.homeAnnouncementActions}>
               <Pressable style={styles.homeAnnouncementActionGhost} onPress={closeAnnouncementForSession}>
-                <Text style={styles.homeAnnouncementActionGhostLabel}>닫기</Text>
+                <Text style={styles.homeAnnouncementActionGhostLabel}>{isKo ? "닫기" : "Close"}</Text>
               </Pressable>
               <Pressable style={styles.homeAnnouncementActionPrimary} onPress={() => void closeAnnouncementForWeek()}>
-                <Text style={styles.homeAnnouncementActionPrimaryLabel}>일주일간 닫기</Text>
+                <Text style={styles.homeAnnouncementActionPrimaryLabel}>
+                  {isKo ? "일주일간 닫기" : "Hide for 1 week"}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -562,12 +611,12 @@ export default function HomeScreen() {
                     style={styles.guideCloseButton}
                     onPress={closeGuideForSession}
                     hitSlop={8}
-                    accessibilityLabel="Close guide for this session"
+                    accessibilityLabel={isKo ? "이번 세션에서 가이드 닫기" : "Close guide for this session"}
                   >
                     <Ionicons name="close" size={20} color={colors.textPrimary} />
                   </Pressable>
                 </View>
-                <Text style={styles.guideModalEyebrow}>Guide note</Text>
+                <Text style={styles.guideModalEyebrow}>{isKo ? "가이드 노트" : "Guide note"}</Text>
                 <Text style={styles.guideModalTitle}>{homeGuideContent.title}</Text>
 
                 <View style={styles.guideModalImageFrame}>
@@ -579,13 +628,17 @@ export default function HomeScreen() {
                 </View>
 
                 <Text style={styles.guideModalBody}>{homeGuideContent.body}</Text>
-                <Text style={styles.guideModalSignature}>LUCL Team</Text>
+                <Text style={styles.guideModalSignature}>{isKo ? "LUCL 팀" : "LUCL Team"}</Text>
                 <View style={styles.guideActionsRow}>
                   <Pressable style={styles.guideSnoozeButton} onPress={() => void hideGuideForWeek()}>
-                    <Text style={styles.guideSnoozeButtonLabel}>일주일간 보지 않기</Text>
+                    <Text style={styles.guideSnoozeButtonLabel}>
+                      {isKo ? "일주일간 보지 않기" : "Hide for 1 week"}
+                    </Text>
                   </Pressable>
                   <Pressable style={styles.guideDismissButton} onPress={() => void dismissGuideForever()}>
-                    <Text style={styles.guideDismissButtonLabel}>다시보지 않기</Text>
+                    <Text style={styles.guideDismissButtonLabel}>
+                      {isKo ? "다시 보지 않기" : "Don't show again"}
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -610,6 +663,33 @@ const styles = StyleSheet.create({
   heroContentCentered: {
     justifyContent: "center",
     alignItems: "center"
+  },
+  languageToggleRow: {
+    marginHorizontal: spacing.lg,
+    marginTop: -4,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8
+  },
+  languageToggleButton: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: "rgba(173,194,220,0.72)",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    paddingHorizontal: 12,
+    paddingVertical: 4
+  },
+  languageToggleButtonSelected: {
+    backgroundColor: colors.textPrimary,
+    borderColor: colors.textPrimary
+  },
+  languageToggleLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  languageToggleLabelSelected: {
+    color: "#f8fafc"
   },
   logoRow: {
     marginHorizontal: spacing.lg,

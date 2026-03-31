@@ -1,4 +1,4 @@
-import { updateUserProfileAction } from "../../../lib/users/actions";
+import { deleteUserAccountAction, updateUserProfileAction } from "../../../lib/users/actions";
 import { fetchAdminUsers } from "../../../lib/users/users.service";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,8 @@ type UsersPageProps = {
     q?: string;
     role?: string;
     userId?: string;
+    notice?: string;
+    error?: string;
   }>;
 };
 
@@ -43,6 +45,8 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
   const query = params.q ?? "";
   const userId = params.userId ?? "";
   const role = params.role ?? "all";
+  const actionNotice = params.notice ?? null;
+  const actionError = params.error ?? null;
 
   let usersError: string | null = null;
   let users = [] as Awaited<ReturnType<typeof fetchAdminUsers>>;
@@ -92,6 +96,8 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
         <button type="submit">Search</button>
       </form>
 
+      {actionNotice ? <p style={{ color: "#166534", marginBottom: 12 }}>{actionNotice}</p> : null}
+      {actionError ? <p className="error-text">{actionError}</p> : null}
       {usersError ? <p className="error-text">{usersError}</p> : null}
 
       {!usersError && users.length === 0 ? (
@@ -145,6 +151,27 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
                 </label>
 
                 <button type="submit">Update Role</button>
+              </form>
+
+              <form action={deleteUserAccountAction} className="action-form" style={{ marginTop: 12 }}>
+                <input name="userId" type="hidden" value={user.id} />
+                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input name="confirmDelete" type="checkbox" value="yes" required />
+                  삭제 확인
+                </label>
+                <button
+                  type="submit"
+                  style={{
+                    background: "#7f1d1d",
+                    color: "#fff",
+                    border: "none",
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    cursor: "pointer"
+                  }}
+                >
+                  Delete Account
+                </button>
               </form>
             </article>
           ))}

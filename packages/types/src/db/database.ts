@@ -479,6 +479,7 @@ export type Database = {
           is_anonymous: boolean;
           last_activity_at: string;
           like_count: number;
+          original_language: string;
           section_id: string;
           status: Database["public"]["Enums"]["post_status"];
           tags: string[];
@@ -503,6 +504,7 @@ export type Database = {
           is_anonymous?: boolean;
           last_activity_at?: string;
           like_count?: number;
+          original_language?: string;
           section_id: string;
           status?: Database["public"]["Enums"]["post_status"];
           tags?: string[];
@@ -527,6 +529,7 @@ export type Database = {
           is_anonymous?: boolean;
           last_activity_at?: string;
           like_count?: number;
+          original_language?: string;
           section_id?: string;
           status?: Database["public"]["Enums"]["post_status"];
           tags?: string[];
@@ -565,6 +568,71 @@ export type Database = {
             columns: ["university_id"];
             isOneToOne: false;
             referencedRelation: "universities";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      post_translations: {
+        Row: {
+          attempt_count: number;
+          completed_at: string | null;
+          created_at: string;
+          error_message: string | null;
+          id: number;
+          last_attempt_at: string | null;
+          post_id: number;
+          source_hash: string;
+          source_language: string;
+          source_updated_at: string;
+          status: string;
+          target_language: string;
+          translated_abstract: string | null;
+          translated_body: string | null;
+          translated_title: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          error_message?: string | null;
+          id?: number;
+          last_attempt_at?: string | null;
+          post_id: number;
+          source_hash: string;
+          source_language: string;
+          source_updated_at: string;
+          status?: string;
+          target_language: string;
+          translated_abstract?: string | null;
+          translated_body?: string | null;
+          translated_title?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          attempt_count?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          error_message?: string | null;
+          id?: number;
+          last_attempt_at?: string | null;
+          post_id?: number;
+          source_hash?: string;
+          source_language?: string;
+          source_updated_at?: string;
+          status?: string;
+          target_language?: string;
+          translated_abstract?: string | null;
+          translated_body?: string | null;
+          translated_title?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "post_translations_post_id_fkey";
+            columns: ["post_id"];
+            isOneToOne: false;
+            referencedRelation: "posts";
             referencedColumns: ["id"];
           }
         ];
@@ -917,6 +985,19 @@ export type Database = {
               message?: string | null;
               post_id?: string | null;
             }[];
+      };
+      enqueue_post_translation: {
+        Args: {
+          p_post_id: number;
+          p_source_language: string;
+          p_target_language?: string | null;
+        };
+        Returns: {
+          source_hash: string;
+          source_updated_at: string;
+          status: string;
+          translation_id: number;
+        }[];
       };
       create_comment: {
         Args: {

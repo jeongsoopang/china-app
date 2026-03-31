@@ -7,12 +7,54 @@ import {
   ReportComposer
 } from "../../../src/features/discussion/discussion.components";
 import { useDiscussionThread } from "../../../src/features/discussion/use-discussion-thread";
+import { useAuthSession } from "../../../src/features/auth/auth-session";
 import { colors, radius, spacing, typography } from "../../../src/ui/theme";
 
 export default function QaDetailScreen() {
+  const auth = useAuthSession();
   const { qaId } = useLocalSearchParams<{
     qaId: string;
   }>();
+
+  if (auth.isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.heading}>Q&A Detail</Text>
+        <Text style={styles.metaText}>Checking session...</Text>
+      </View>
+    );
+  }
+
+  if (!auth.isSignedIn) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.heading}>Q&A Detail</Text>
+        <View style={styles.authGateCard}>
+          <Ionicons name="lock-closed-outline" size={24} color={colors.textMuted} />
+          <Text style={styles.authGateTitle}>로그인이 필요합니다</Text>
+          <Text style={styles.helperText}>
+            비회원은 미리보기만 볼 수 있으며, 상세 본문은 로그인 후 확인할 수 있습니다.
+          </Text>
+          <Link asChild href="/auth/sign-in">
+            <Pressable style={styles.primaryAuthButton}>
+              <Text style={styles.primaryAuthButtonLabel}>로그인</Text>
+            </Pressable>
+          </Link>
+          <Link asChild href="/auth/sign-up">
+            <Pressable style={styles.secondaryAuthButton}>
+              <Text style={styles.secondaryAuthButtonLabel}>회원가입</Text>
+            </Pressable>
+          </Link>
+        </View>
+      </View>
+    );
+  }
+
+  return <AuthenticatedQaDetailScreen qaId={qaId} />;
+}
+
+function AuthenticatedQaDetailScreen(props: { qaId: string }) {
+  const { qaId } = props;
   const thread = useDiscussionThread({ mode: "qa", routeId: qaId });
   const bodyBlocks = parsePostBody(thread.state.post?.body ?? "");
 
@@ -283,6 +325,43 @@ const styles = StyleSheet.create({
   },
   authHint: {
     gap: 6
+  },
+  authGateCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: 16,
+    gap: spacing.sm
+  },
+  authGateTitle: {
+    fontSize: typography.subtitle,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  primaryAuthButton: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  primaryAuthButtonLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: "#f8fafc"
+  },
+  secondaryAuthButton: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  secondaryAuthButtonLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textPrimary
   },
   authLink: {
     fontSize: typography.bodySmall,

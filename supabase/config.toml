@@ -1,11 +1,35 @@
-
 [functions.send-school-verification]
 enabled = true
 verify_jwt = true
 import_map = "./functions/send-school-verification/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/send-school-verification/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/send-school-verification/*.html" ]
+
+[functions.send-email-verification-code]
+enabled = true
+verify_jwt = false
+import_map = "./functions/send-email-verification-code/deno.json"
+entrypoint = "./functions/send-email-verification-code/index.ts"
+
+[functions.verify-email-verification-code]
+enabled = true
+verify_jwt = false
+import_map = "./functions/verify-email-verification-code/deno.json"
+entrypoint = "./functions/verify-email-verification-code/index.ts"
+
+[functions.complete-signup]
+enabled = true
+verify_jwt = false
+import_map = "./functions/complete-signup/deno.json"
+entrypoint = "./functions/complete-signup/index.ts"
+
+[functions.delete-account]
+enabled = true
+verify_jwt = false
+import_map = "./functions/delete-account/deno.json"
+entrypoint = "./functions/delete-account/index.ts"
+
+[functions.translate-posts-worker]
+enabled = false
+verify_jwt = false
+import_map = "./functions/translate-posts-worker/deno.json"
+entrypoint = "./functions/translate-posts-worker/index.ts"

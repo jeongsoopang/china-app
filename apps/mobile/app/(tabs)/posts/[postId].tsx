@@ -10,6 +10,8 @@ import {
 } from "../../../src/features/discussion/discussion.components";
 import { incrementPostViewCount } from "../../../src/features/discussion/discussion.service";
 import { useDiscussionThread } from "../../../src/features/discussion/use-discussion-thread";
+import { useAuthSession } from "../../../src/features/auth/auth-session";
+import { useAppLanguage } from "../../../src/features/language/app-language";
 import { supabase } from "../../../src/lib/supabase/client";
 import { TierMarker, resolveTierMarkerValue } from "../../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../../src/ui/theme";
@@ -21,15 +23,107 @@ function isSpecialRole(value: string | null | undefined): boolean {
 export default function PostDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const auth = useAuthSession();
   const { postId, returnTo } = useLocalSearchParams<{
     postId: string;
     returnTo?: string | string[];
   }>();
+  const { resolvedLanguage } = useAppLanguage();
 
   const resolvedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
   const safeTopPadding = Math.max(insets.top + 8, spacing.lg);
-  const thread = useDiscussionThread({ mode: "post", routeId: postId });
-  const bodyBlocks = parsePostBody(thread.state.post?.body ?? "");
+
+  function onGoBackFromGate() {
+    if (resolvedReturnTo) {
+      router.replace(resolvedReturnTo as never);
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/(tabs)" as never);
+  }
+
+  if (auth.isLoading) {
+    return (
+      <View style={[styles.container, { paddingTop: safeTopPadding }]}>
+        <Text style={styles.heading}>Post Detail</Text>
+        <Text style={styles.metaText}>Checking session...</Text>
+      </View>
+    );
+  }
+
+  if (!auth.isSignedIn) {
+    return (
+      <View style={[styles.container, { paddingTop: safeTopPadding }]}>
+        <View style={styles.screenHeaderRow}>
+          <Pressable onPress={onGoBackFromGate} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
+            <Text style={styles.backButtonLabel}>Back</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.heading}>Post Detail</Text>
+        <View style={styles.authGateCard}>
+          <Ionicons name="lock-closed-outline" size={24} color={colors.textMuted} />
+          <Text style={styles.authGateTitle}>로그인이 필요합니다</Text>
+          <Text style={styles.helperText}>
+            비회원은 미리보기만 볼 수 있으며, 상세 본문은 로그인 후 확인할 수 있습니다.
+          </Text>
+          <Link asChild href="/auth/sign-in">
+            <Pressable style={styles.primaryAuthButton}>
+              <Text style={styles.primaryAuthButtonLabel}>로그인</Text>
+            </Pressable>
+          </Link>
+          <Link asChild href="/auth/sign-up">
+            <Pressable style={styles.secondaryAuthButton}>
+              <Text style={styles.secondaryAuthButtonLabel}>회원가입</Text>
+            </Pressable>
+          </Link>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+      <AuthenticatedPostDetailScreen
+        postId={postId}
+        returnTo={resolvedReturnTo}
+        safeTopPadding={safeTopPadding}
+        resolvedLanguage={resolvedLanguage}
+      />
+  );
+}
+
+function AuthenticatedPostDetailScreen(props: {
+  postId: string;
+  returnTo?: string;
+  safeTopPadding: number;
+  resolvedLanguage: "ko" | "en";
+}) {
+  const { postId, returnTo, safeTopPadding, resolvedLanguage } = props;
+  const router = useRouter();
+  const thread = useDiscussionThread({ mode: "post", routeId: postId, resolvedLanguage });
+  const post = thread.state.post;
+  const shouldUseTranslation =
+    post !== null &&
+    resolvedLanguage !== post.original_language &&
+    post.translation?.targetLanguage === resolvedLanguage;
+  const displayTitle = shouldUseTranslation
+    ? (post?.translation?.translatedTitle ?? post?.title ?? "")
+    : (post?.title ?? "");
+  const displayBody = shouldUseTranslation
+    ? (post?.translation?.translatedBody ?? post?.body ?? "")
+    : (post?.body ?? "");
+  const translationMissingNotice =
+    post &&
+    resolvedLanguage !== post.original_language &&
+    !shouldUseTranslation
+      ? (resolvedLanguage === "ko" ? "아직 번역되지 않음" : "Not translated yet")
+      : null;
+  const bodyBlocks = parsePostBody(displayBody);
   const [authorName, setAuthorName] = useState<string | null>(null);
   const [authorTier, setAuthorTier] = useState<string | null>(null);
   const [viewCountOverride, setViewCountOverride] = useState<number | null>(null);
@@ -37,7 +131,7 @@ export default function PostDetailScreen() {
   const inferredUniversityReturnTo = thread.state.post?.university_id
     ? `/universities/${thread.state.post.university_id}`
     : null;
-  const resolvedBackTo = resolvedReturnTo ?? inferredUniversityReturnTo;
+  const resolvedBackTo = returnTo ?? inferredUniversityReturnTo;
 
   useEffect(() => {
     let cancelled = false;
@@ -159,7 +253,8 @@ export default function PostDetailScreen() {
 
       {thread.state.post ? (
         <View style={styles.postCard}>
-          <Text style={styles.postTitle}>{thread.state.post.title}</Text>
+          <Text style={styles.postTitle}>{displayTitle}</Text>
+          {translationMissingNotice ? <Text style={styles.metaText}>{translationMissingNotice}</Text> : null}
           <Pressable
             onPress={() =>
               router.push({
@@ -516,6 +611,43 @@ const styles = StyleSheet.create({
   },
   authHint: {
     gap: 6
+  },
+  authGateCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: 16,
+    gap: spacing.sm
+  },
+  authGateTitle: {
+    fontSize: typography.subtitle,
+    fontWeight: "700",
+    color: colors.textPrimary
+  },
+  primaryAuthButton: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  primaryAuthButtonLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: "#f8fafc"
+  },
+  secondaryAuthButton: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  secondaryAuthButtonLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textPrimary
   },
   helperText: {
     fontSize: typography.bodySmall,

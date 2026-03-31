@@ -75,6 +75,16 @@ const CATEGORY_CATALOG: CategoryCatalog = {
   ]
 };
 
+const CAMPUS_NOTICE_CATEGORY_OPTIONS: CategoryOption[] = [
+  { slug: "life-notice", label: "공지", sectionCode: "life" },
+  { slug: "life-opportunity", label: "기회의 장", sectionCode: "life" },
+  { slug: "life-info-sharing", label: "정보 공유", sectionCode: "life" }
+];
+
+const CAMPUS_NOTICE_CATEGORY_SLUGS = new Set(
+  CAMPUS_NOTICE_CATEGORY_OPTIONS.map((category) => category.slug)
+);
+
 function canUseNoticeCategory(tier: AccessTier | null | undefined): boolean {
   return tier === "campus_master";
 }
@@ -176,6 +186,8 @@ export type AccessTier =
   | "church_master"
   | "campus_master";
 
+export type PostLanguageCode = "ko" | "en";
+
 export type ShanghaiMainCategoryKey = "food" | "place" | "church";
 
 export function isElevatedTier(tier: AccessTier): boolean {
@@ -243,7 +255,7 @@ export function isChurchIntroCategorySlug(slug: string | null | undefined): bool
 }
 
 export function isCampusNoticeCategorySlug(slug: string | null | undefined): boolean {
-  return slug === "life-notice";
+  return typeof slug === "string" && CAMPUS_NOTICE_CATEGORY_SLUGS.has(slug);
 }
 
 export function getShanghaiMainCategoryFromSlug(
@@ -297,13 +309,13 @@ export function getCategoryOptionsForSection(
   }
 
   if (sectionCode === "life" && isCampusMasterProfile(profile)) {
-    return [{ slug: "life-notice", label: "공지", sectionCode: "life" }];
+    return [...CAMPUS_NOTICE_CATEGORY_OPTIONS];
   }
 
   if (sectionCode === "life" && canUseNoticeCategory(tier)) {
     return [
       ...base,
-      { slug: "life-notice", label: "공지", sectionCode: "life" }
+      ...CAMPUS_NOTICE_CATEGORY_OPTIONS
     ];
   }
 
@@ -357,7 +369,7 @@ export async function fetchActiveUniversities(): Promise<UniversityOption[]> {
     .from("universities")
     .select("id, slug, name:name_ko, short_name")
     .eq("is_active", true)
-    .order("name", { ascending: true });
+    .order("name_ko", { ascending: true });
 
   if (error) {
     throw error;
@@ -412,6 +424,23 @@ export async function fetchUniversityById(
     name: row.name,
     shortName: row.short_name
   };
+}
+
+export async function enqueuePostTranslation(params: {
+  postId: number;
+  sourceLanguage: PostLanguageCode;
+  targetLanguage: PostLanguageCode;
+}): Promise<void> {
+  const { postId, sourceLanguage, targetLanguage } = params;
+  const { error } = await supabase.rpc("enqueue_post_translation", {
+    p_post_id: postId,
+    p_source_language: sourceLanguage,
+    p_target_language: targetLanguage
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function createPostViaRpc(input: CreatePostInput): Promise<CreatePostResult> {

@@ -104,8 +104,9 @@ function updateCommentLikeCount(
 export function useDiscussionThread(params: {
   mode: DiscussionMode;
   routeId: string | string[] | undefined;
+  resolvedLanguage?: "ko" | "en";
 }) {
-  const { mode, routeId } = params;
+  const { mode, routeId, resolvedLanguage } = params;
   const [state, setState] = useState<DiscussionThreadState>(INITIAL_STATE);
 
   const resolvedPostId = useMemo(() => parsePostRouteId(routeId), [routeId]);
@@ -139,7 +140,7 @@ export function useDiscussionThread(params: {
 
     try {
       const [threadData, currentUser] = await Promise.all([
-        fetchThreadData(resolvedPostId, mode),
+        fetchThreadData(resolvedPostId, mode, resolvedLanguage),
         getMobileCurrentUser()
       ]);
 
@@ -172,7 +173,7 @@ export function useDiscussionThread(params: {
         errorMessage: mapDiscussionError(error)
       }));
     }
-  }, [mode, resolvedPostId]);
+  }, [mode, resolvedLanguage, resolvedPostId]);
 
   useEffect(() => {
     void loadThread();
