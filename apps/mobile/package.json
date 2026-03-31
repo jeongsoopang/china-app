@@ -26,6 +26,7 @@
     "expo-image-manipulator": "~13.1.7",
     "expo-image-picker": "~16.1.4",
     "expo-linking": "~7.1.7",
+    "expo-modules-autolinking": "~2.1.15",
     "expo-router": "~5.1.11",
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
