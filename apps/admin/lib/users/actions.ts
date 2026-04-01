@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { deleteAdminUser, updateAdminUser } from "./users.service";
+import { adjustAdminUserPoints, deleteAdminUser, updateAdminUser } from "./users.service";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,6 +25,30 @@ export async function updateUserProfileAction(formData: FormData): Promise<void>
   await updateAdminUser({
     userId,
     role
+  });
+
+  revalidatePath("/users");
+}
+
+export async function updateUserPointsAction(formData: FormData): Promise<void> {
+  const userId = parseRequiredText(formData.get("userId"), "userId");
+  const deltaText = parseRequiredText(formData.get("pointDelta"), "pointDelta");
+  const noteValue = formData.get("pointNote");
+  const note = typeof noteValue === "string" && noteValue.trim().length > 0 ? noteValue.trim() : null;
+  const delta = Number(deltaText);
+
+  if (!uuidPattern.test(userId)) {
+    throw new Error("userId must be a valid UUID.");
+  }
+
+  if (!Number.isInteger(delta) || delta === 0) {
+    throw new Error("pointDelta must be a non-zero integer.");
+  }
+
+  await adjustAdminUserPoints({
+    userId,
+    delta,
+    note
   });
 
   revalidatePath("/users");

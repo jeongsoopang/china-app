@@ -1,4 +1,8 @@
-import { deleteUserAccountAction, updateUserProfileAction } from "../../../lib/users/actions";
+import {
+  deleteUserAccountAction,
+  updateUserPointsAction,
+  updateUserProfileAction
+} from "../../../lib/users/actions";
 import { fetchAdminUsers } from "../../../lib/users/users.service";
 
 export const dynamic = "force-dynamic";
@@ -132,6 +136,14 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
                   <dt>Created</dt>
                   <dd>{formatTime(user.created_at)}</dd>
                 </div>
+                <div>
+                  <dt>Points</dt>
+                  <dd>{user.points}</dd>
+                </div>
+                <div>
+                  <dt>Point Tier</dt>
+                  <dd>{user.point_tier ?? "-"}</dd>
+                </div>
               </dl>
 
               <form action={updateUserProfileAction} className="action-form">
@@ -151,6 +163,28 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
                 </label>
 
                 <button type="submit">Update Role</button>
+              </form>
+
+              <form action={updateUserPointsAction} className="action-form" style={{ marginTop: 12 }}>
+                <input name="userId" type="hidden" value={user.id} />
+
+                <label>
+                  Point Delta
+                  <input
+                    name="pointDelta"
+                    type="number"
+                    step={1}
+                    required
+                    placeholder="e.g. 100 or -50"
+                  />
+                </label>
+
+                <label>
+                  Note
+                  <input name="pointNote" type="text" placeholder="manual adjustment note (optional)" />
+                </label>
+
+                <button type="submit">Adjust Points</button>
               </form>
 
               <form action={deleteUserAccountAction} className="action-form" style={{ marginTop: 12 }}>

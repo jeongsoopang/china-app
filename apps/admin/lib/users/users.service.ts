@@ -14,6 +14,8 @@ export type AdminUserRow = {
   login_email: string | null;
   verified_university_id: string | null;
   university_label: string | null;
+  points: number;
+  point_tier: string | null;
   role: string;
   created_at: string;
 };
@@ -21,6 +23,12 @@ export type AdminUserRow = {
 export type AdminUserUpdateInput = {
   userId: string;
   role: string;
+};
+
+export type AdminUserPointAdjustInput = {
+  userId: string;
+  delta: number;
+  note?: string | null;
 };
 
 export type AdminUserDeleteInput = {
@@ -32,6 +40,8 @@ type RawUserProfileRow = {
   display_name: string | null;
   real_name: string | null;
   verified_university_id: string | null;
+  points: number | null;
+  point_tier: string | null;
   role: string | null;
   created_at: string;
 };
@@ -80,7 +90,7 @@ export async function fetchAdminUsers(
 
   let query = profilesClient
     .from("user_profiles")
-    .select("id, display_name, real_name, verified_university_id, role, created_at")
+    .select("id, display_name, real_name, verified_university_id, points, point_tier, role, created_at")
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -177,6 +187,8 @@ export async function fetchAdminUsers(
     university_label: user.verified_university_id
       ? universityMap.get(user.verified_university_id) ?? null
       : null,
+    points: typeof user.points === "number" ? user.points : 0,
+    point_tier: typeof user.point_tier === "string" ? user.point_tier : null,
     role: String(user.role ?? "bronze"),
     created_at: user.created_at
   }));
@@ -275,6 +287,42 @@ export async function updateAdminUser(input: AdminUserUpdateInput): Promise<void
       actorUserId: actor.authUser.id,
       targetUserId: input.userId,
       changedFields,
+      at: new Date().toISOString()
+    })
+  );
+}
+
+export async function adjustAdminUserPoints(input: AdminUserPointAdjustInput): Promise<void> {
+  const actor = await requireGrandMasterAccess();
+
+  if (!Number.isInteger(input.delta) || input.delta === 0) {
+    throw new Error("Point delta must be a non-zero integer.");
+  }
+
+  const client = createAdminServiceClient();
+  const rpcClient = client as unknown as {
+    rpc: (
+      fn: string,
+      args?: Record<string, unknown>
+    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+
+  const { error } = await rpcClient.rpc("admin_adjust_user_points", {
+    p_user_id: input.userId,
+    p_delta: input.delta,
+    p_note: input.note ?? null
+  });
+
+  if (error) {
+    throw new Error(errorMessageFromUnknown(error, "Failed to adjust user points."));
+  }
+
+  console.info(
+    JSON.stringify({
+      event: "admin_user_points_adjust",
+      actorUserId: actor.authUser.id,
+      targetUserId: input.userId,
+      delta: input.delta,
       at: new Date().toISOString()
     })
   );
