@@ -32,7 +32,7 @@ import { useAuthSession } from "../../src/features/auth/auth-session";
 import { useAppLanguage } from "../../src/features/language/app-language";
 import { supabase } from "../../src/lib/supabase/client";
 import { CityHeroHeader } from "../../src/ui/city-hero-header";
-import { TierMarker, normalizeTierForDisplay } from "../../src/ui/tier-marker";
+import { TierMarker, normalizeTierForDisplay, resolveTierMarkerValue } from "../../src/ui/tier-marker";
 import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
 type VerifiedUniversitySummary = {
@@ -77,8 +77,6 @@ const PROFILE_CROP_MIN_ZOOM = 1;
 const PROFILE_CROP_MAX_ZOOM = 3.5;
 const AVATAR_UPLOAD_MAX_LONG_EDGE = 1080;
 const BACKGROUND_UPLOAD_MAX_LONG_EDGE = 1600;
-const SPECIAL_ROLE_TIERS = new Set(["campus_master", "church_master", "grandmaster"]);
-
 type CropTarget = "avatar" | "background";
 
 type CropFramePreset = {
@@ -569,7 +567,6 @@ export default function MeScreen() {
   const email = auth.user?.authUser.email ?? "-";
   const role = auth.user?.profile?.role ?? "-";
   const tier = auth.user?.profile?.tier ?? null;
-  const pointTier = auth.user?.profile?.point_tier ?? null;
   const points = typeof auth.user?.profile?.points === "number" ? auth.user.profile.points : 0;
   const verifiedSchoolEmail = auth.user?.profile?.verified_school_email ?? null;
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
@@ -581,13 +578,9 @@ export default function MeScreen() {
     metadataPrivateProfile;
 
   const effectiveTier = useMemo(() => {
-    const normalizedRole = role.trim().toLowerCase();
-    if (SPECIAL_ROLE_TIERS.has(normalizedRole)) {
-      return role;
-    }
-
-    if (pointTier) {
-      return pointTier;
+    const roleTier = resolveTierMarkerValue(role, role);
+    if (roleTier) {
+      return roleTier;
     }
 
     if (tier) {
@@ -595,7 +588,7 @@ export default function MeScreen() {
     }
 
     return "bronze";
-  }, [pointTier, role, tier]);
+  }, [role, tier]);
   const canonicalTier = normalizeTierForDisplay(effectiveTier);
   const isBronzeTier = canonicalTier === "bronze";
 
