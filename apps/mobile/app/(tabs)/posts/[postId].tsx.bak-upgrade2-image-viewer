@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CommentTree,
@@ -128,56 +128,6 @@ function AuthenticatedPostDetailScreen(props: {
   const [authorTier, setAuthorTier] = useState<string | null>(null);
   const [viewCountOverride, setViewCountOverride] = useState<number | null>(null);
   const incrementedPostIdRef = useRef<number | null>(null);
-  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
-  const [imageAspectRatios, setImageAspectRatios] = useState<Record<string, number>>({});
-
-  function rememberImageAspectRatio(url: string, width?: number, height?: number) {
-    if (!width || !height || width <= 0 || height <= 0) {
-      return;
-    }
-
-    const nextRatio = width / height;
-    setImageAspectRatios((current) => {
-      if (current[url] === nextRatio) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [url]: nextRatio
-      };
-    });
-  }
-
-  function openImageViewer(url: string) {
-    setSelectedImageUrl(url);
-  }
-
-  function closeImageViewer() {
-    setSelectedImageUrl(null);
-  }
-
-  function renderPostImage(url: string, key: string) {
-    const ratio = imageAspectRatios[url];
-
-    return (
-      <Pressable key={key} onPress={() => openImageViewer(url)} style={styles.postImagePressable}>
-        <Image
-          source={{ uri: url }}
-          style={[styles.postImage, ratio ? { aspectRatio: ratio, height: undefined } : null]}
-          resizeMode="contain"
-          onLoad={(event) => {
-            const source = event.nativeEvent?.source;
-            rememberImageAspectRatio(
-              url,
-              typeof source?.width === "number" ? source.width : undefined,
-              typeof source?.height === "number" ? source.height : undefined
-            );
-          }}
-        />
-      </Pressable>
-    );
-  }
   const inferredUniversityReturnTo = thread.state.post?.university_id
     ? `/universities/${thread.state.post.university_id}`
     : null;
@@ -330,7 +280,11 @@ function AuthenticatedPostDetailScreen(props: {
                   {block.text}
                 </Text>
               ) : (
-                renderPostImage(block.url, `${block.type}-${index}`)
+                <Image
+                  key={`${block.type}-${index}`}
+                  source={{ uri: block.url }}
+                  style={styles.postImage}
+                />
               )
             )}
           </View>
@@ -339,11 +293,15 @@ function AuthenticatedPostDetailScreen(props: {
           thread.state.post.images.length > 0 ? (
             <View style={styles.imagesSection}>
               <Text style={styles.metaText}>Images: {thread.state.post.images.length}</Text>
-              <View style={styles.imageStack}>
-                {thread.state.post.images.map((image) =>
-                  renderPostImage(image.image_url, `post-image-${image.id}`)
-                )}
-              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.imageRow}
+              >
+                {thread.state.post.images.map((image) => (
+                  <Image key={image.id} source={{ uri: image.image_url }} style={styles.postImage} />
+                ))}
+              </ScrollView>
             </View>
           ) : null}
 
@@ -455,29 +413,6 @@ function AuthenticatedPostDetailScreen(props: {
 
       {thread.state.infoMessage ? <Text style={styles.infoText}>{thread.state.infoMessage}</Text> : null}
       {thread.state.errorMessage ? <Text style={styles.errorText}>{thread.state.errorMessage}</Text> : null}
-
-      <Modal
-        visible={selectedImageUrl !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeImageViewer}
-      >
-        <View style={styles.imageViewerBackdrop}>
-          <Pressable onPress={closeImageViewer} style={styles.imageViewerCloseButton}>
-            <Ionicons name="close" size={22} color="#ffffff" />
-          </Pressable>
-
-          {selectedImageUrl ? (
-            <Pressable onPress={closeImageViewer} style={styles.imageViewerContent}>
-              <Image
-                source={{ uri: selectedImageUrl }}
-                style={styles.imageViewerImage}
-                resizeMode="contain"
-              />
-            </Pressable>
-          ) : null}
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -608,46 +543,14 @@ const styles = StyleSheet.create({
   imagesSection: {
     gap: spacing.xs
   },
-  imageStack: {
+  imageRow: {
     gap: spacing.sm
   },
-  postImagePressable: {
-    width: "100%"
-  },
   postImage: {
-    width: "100%",
-    minHeight: 220,
+    width: 200,
+    height: 140,
     borderRadius: radius.sm,
     backgroundColor: colors.surfaceMuted
-  },
-  imageViewerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.92)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: spacing.lg
-  },
-  imageViewerCloseButton: {
-    position: "absolute",
-    top: 56,
-    right: 20,
-    zIndex: 2,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.14)",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  imageViewerContent: {
-    width: "100%",
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  imageViewerImage: {
-    width: "100%",
-    height: "100%"
   },
   sectionHeader: {
     flexDirection: "row",
