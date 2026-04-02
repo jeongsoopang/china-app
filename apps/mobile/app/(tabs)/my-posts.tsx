@@ -1,7 +1,8 @@
 import { Link, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -11,6 +12,14 @@ import {
   View
 } from "react-native";
 import { useAuthSession } from "../../src/features/auth/auth-session";
+import {
+  pickComposeImages,
+  uploadComposeImages
+} from "../../src/features/compose/compose-images.service";
+import {
+  updatePostMetadata
+} from "../../src/features/compose/compose.service";
+import type { SelectedComposeImage } from "../../src/features/compose/compose.types";
 import { supabase } from "../../src/lib/supabase/client";
 import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
@@ -18,14 +27,38 @@ type MyPost = {
   id: number;
   title: string;
   body: string;
+  abstract: string | null;
+  thumbnailImageUrl: string | null;
+  thumbnailStoragePath: string | null;
   createdAt: string;
 };
 
 type EditDraft = {
   id: number;
   title: string;
-  body: string;
+  blocks: EditBlock[];
+  thumbnailBlockId: string | null;
 };
+
+type EditParagraphBlock = {
+  id: string;
+  type: "paragraph";
+  text: string;
+};
+
+type EditImageBlock = {
+  id: string;
+  type: "image";
+  imageUrl?: string;
+  storagePath?: string;
+  localUri?: string;
+  fileName?: string;
+  mimeType?: string;
+  width?: number | null;
+  height?: number | null;
+};
+
+type EditBlock = EditParagraphBlock | EditImageBlock;
 
 function stripBodyPreview(body: string): string {
   if (!body) {
@@ -38,6 +71,274 @@ function stripBodyPreview(body: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function createBlockId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createParagraphBlock(text = ""): EditParagraphBlock {
+  return {
+    id: createBlockId("paragraph"),
+    type: "paragraph",
+    text
+  };
+}
+
+function parseBodyToBlocks(body: string): EditBlock[] {
+  const source = body ?? "";
+  const blocks: EditBlock[] = [];
+  const pattern = /<p>(.*?)<\/p>|<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gis;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source)) !== null) {
+    if (match[1] !== undefined) {
+      const text = unescapeHtml(match[1]).trim();
+      blocks.push(createParagraphBlock(text));
+      continue;
+    }
+
+    const imageUrl = match[2];
+    if (imageUrl) {
+      blocks.push({
+        id: createBlockId("image"),
+        type: "image",
+        imageUrl
+      });
+    }
+  }
+
+  if (blocks.length > 0) {
+    return blocks;
+  }
+
+  const textOnly = stripBodyPreview(source);
+  return [createParagraphBlock(textOnly)];
+}
+
+function serializeBlocksToBody(params: {
+  blocks: EditBlock[];
+  imageUrlByLocalUri?: Map<string, string>;
+}): string {
+  const { blocks, imageUrlByLocalUri } = params;
+
+  return blocks
+    .map((block) => {
+      if (block.type === "paragraph") {
+        return `<p>${escapeHtml(block.text)}</p>`;
+      }
+
+      const localUri = block.localUri ?? null;
+      const imageUrl = localUri ? imageUrlByLocalUri?.get(localUri) ?? block.imageUrl : block.imageUrl;
+
+      if (!imageUrl) {
+        return "";
+      }
+
+      return `<img src="${imageUrl}" />`;
+    })
+    .filter((chunk) => chunk.length > 0)
+    .join("\n");
+}
+
+function dedupeSelectedImages(images: SelectedComposeImage[]): SelectedComposeImage[] {
+  const seen = new Set<string>();
+
+  return images.filter((image) => {
+    if (seen.has(image.localUri)) {
+      return false;
+    }
+
+    seen.add(image.localUri);
+    return true;
+  });
+}
+
+function collectLocalImages(blocks: EditBlock[]): SelectedComposeImage[] {
+  return blocks.flatMap((block) => {
+    if (block.type !== "image") {
+      return [];
+    }
+
+    if (!block.localUri || !block.fileName || !block.mimeType) {
+      return [];
+    }
+
+    return [
+      {
+        localUri: block.localUri,
+        fileName: block.fileName,
+        mimeType: block.mimeType,
+        width: block.width ?? null,
+        height: block.height ?? null
+      }
+    ];
+  });
+}
+
+function hasEditableContent(blocks: EditBlock[]): boolean {
+  return blocks.some((block) => {
+    if (block.type === "paragraph") {
+      return block.text.trim().length > 0;
+    }
+
+    return Boolean(block.imageUrl || block.localUri);
+  });
+}
+
+function mapErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다.";
+}
+
+function getThumbnailCandidate(params: {
+  blocks: EditBlock[];
+  thumbnailBlockId: string | null;
+  imageUrlByLocalUri?: Map<string, string>;
+  storagePathByLocalUri?: Map<string, string>;
+  storagePathByImageUrl?: Map<string, string>;
+}): { imageUrl: string | null; storagePath: string | null } {
+  const {
+    blocks,
+    thumbnailBlockId,
+    imageUrlByLocalUri,
+    storagePathByLocalUri,
+    storagePathByImageUrl
+  } = params;
+
+  const imageBlocks = blocks.filter((block) => block.type === "image");
+  const preferred =
+    thumbnailBlockId && imageBlocks.find((block) => block.id === thumbnailBlockId);
+  const candidate = preferred ?? imageBlocks[0];
+
+  if (!candidate || candidate.type !== "image") {
+    return {
+      imageUrl: null,
+      storagePath: null
+    };
+  }
+
+  const localUri = candidate.localUri ?? null;
+  const imageUrl = localUri
+    ? imageUrlByLocalUri?.get(localUri) ?? candidate.imageUrl ?? null
+    : candidate.imageUrl ?? null;
+  const storagePath = localUri
+    ? storagePathByLocalUri?.get(localUri) ??
+      candidate.storagePath ??
+      (imageUrl ? storagePathByImageUrl?.get(imageUrl) ?? null : null)
+    : candidate.storagePath ?? (imageUrl ? storagePathByImageUrl?.get(imageUrl) ?? null : null);
+
+  return {
+    imageUrl,
+    storagePath
+  };
+}
+
+function buildAbstractFromBody(body: string): string | null {
+  const summary = stripBodyPreview(body);
+
+  if (summary.length === 0) {
+    return null;
+  }
+
+  if (summary.length > 140) {
+    return `${summary.slice(0, 137)}...`;
+  }
+
+  return summary;
+}
+
+function buildFinalPostImageRows(params: {
+  postId: number;
+  blocks: EditBlock[];
+  imageUrlByLocalUri: Map<string, string>;
+  storagePathByLocalUri: Map<string, string>;
+  existingImageRows: Array<{ image_url: string; storage_path: string }>;
+}): {
+  rows: Array<{
+    post_id: number;
+    image_url: string;
+    storage_path: string;
+    sort_order: number;
+  }>;
+  unresolvedImageUrls: string[];
+} {
+  const { postId, blocks, imageUrlByLocalUri, storagePathByLocalUri, existingImageRows } = params;
+  const existingStoragePathsByImageUrl = new Map<string, string[]>();
+
+  existingImageRows.forEach((row) => {
+    const queue = existingStoragePathsByImageUrl.get(row.image_url) ?? [];
+    queue.push(row.storage_path);
+    existingStoragePathsByImageUrl.set(row.image_url, queue);
+  });
+
+  const rows: Array<{
+    post_id: number;
+    image_url: string;
+    storage_path: string;
+    sort_order: number;
+  }> = [];
+  const unresolvedImageUrls = new Set<string>();
+
+  blocks.forEach((block) => {
+    if (block.type !== "image") {
+      return;
+    }
+
+    const localUri = block.localUri ?? null;
+    const imageUrl = localUri
+      ? imageUrlByLocalUri.get(localUri) ?? block.imageUrl ?? null
+      : block.imageUrl ?? null;
+
+    if (!imageUrl) {
+      return;
+    }
+
+    let storagePath = localUri
+      ? storagePathByLocalUri.get(localUri) ?? block.storagePath ?? null
+      : block.storagePath ?? null;
+
+    if (!storagePath) {
+      const queue = existingStoragePathsByImageUrl.get(imageUrl);
+      if (queue && queue.length > 0) {
+        storagePath = queue.shift() ?? null;
+      }
+    }
+
+    if (!storagePath) {
+      unresolvedImageUrls.add(imageUrl);
+      return;
+    }
+
+    rows.push({
+      post_id: postId,
+      image_url: imageUrl,
+      storage_path: storagePath,
+      sort_order: rows.length
+    });
+  });
+
+  return {
+    rows,
+    unresolvedImageUrls: [...unresolvedImageUrls]
+  };
 }
 
 function formatDate(value: string): string {
@@ -56,8 +357,12 @@ export default function MyPostsScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isPickingImages, setIsPickingImages] = useState(false);
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [imageLoadStateByBlockId, setImageLoadStateByBlockId] = useState<
+    Record<string, "loading" | "loaded" | "error">
+  >({});
 
   const authUserId = auth.user?.authUser.id ?? null;
   const resolvedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
@@ -74,11 +379,38 @@ export default function MyPostsScreen() {
 
     setIsLoading(true);
 
-    const { data, error } = await supabase
-      .from("posts")
-      .select("id, title, body, created_at")
-      .eq("author_id", authUserId)
-      .order("created_at", { ascending: false });
+    const attemptWithMetadata = async () => {
+      return supabase
+        .from("posts")
+        .select("id, title, body, abstract, thumbnail_image_url, thumbnail_storage_path, created_at")
+        .eq("author_id", authUserId)
+        .order("created_at", { ascending: false });
+    };
+
+    const attemptWithoutMetadata = async () => {
+      return supabase
+        .from("posts")
+        .select("id, title, body, created_at")
+        .eq("author_id", authUserId)
+        .order("created_at", { ascending: false });
+    };
+
+    let data: unknown = null;
+    let error: { message: string } | null = null;
+
+    const withMetadata = await attemptWithMetadata();
+    data = withMetadata.data;
+    error = withMetadata.error ? { message: withMetadata.error.message } : null;
+
+    if (
+      error &&
+      /column/i.test(error.message) &&
+      /abstract|thumbnail_image_url|thumbnail_storage_path/i.test(error.message)
+    ) {
+      const withoutMetadata = await attemptWithoutMetadata();
+      data = withoutMetadata.data;
+      error = withoutMetadata.error ? { message: withoutMetadata.error.message } : null;
+    }
 
     if (error) {
       setErrorMessage(error.message);
@@ -90,6 +422,9 @@ export default function MyPostsScreen() {
       id: number;
       title: string;
       body: string;
+      abstract?: string | null;
+      thumbnail_image_url?: string | null;
+      thumbnail_storage_path?: string | null;
       created_at: string;
     }>;
 
@@ -98,6 +433,11 @@ export default function MyPostsScreen() {
         id: row.id,
         title: row.title,
         body: row.body,
+        abstract: typeof row.abstract === "string" ? row.abstract : null,
+        thumbnailImageUrl:
+          typeof row.thumbnail_image_url === "string" ? row.thumbnail_image_url : null,
+        thumbnailStoragePath:
+          typeof row.thumbnail_storage_path === "string" ? row.thumbnail_storage_path : null,
         createdAt: row.created_at
       }))
     );
@@ -110,16 +450,163 @@ export default function MyPostsScreen() {
     }, [loadPosts])
   );
 
+  useEffect(() => {
+    if (!editDraft) {
+      setImageLoadStateByBlockId({});
+      return;
+    }
+
+    const initialState: Record<string, "loading" | "loaded" | "error"> = {};
+    const remoteUris = new Set<string>();
+
+    editDraft.blocks.forEach((block) => {
+      if (block.type !== "image") {
+        return;
+      }
+
+      if (block.localUri) {
+        initialState[block.id] = "loaded";
+        return;
+      }
+
+      if (block.imageUrl) {
+        initialState[block.id] = "loading";
+        remoteUris.add(block.imageUrl);
+      }
+    });
+
+    setImageLoadStateByBlockId(initialState);
+
+    remoteUris.forEach((uri) => {
+      void Image.prefetch(uri);
+    });
+  }, [editDraft]);
+
   const isSignedIn = auth.isSignedIn && auth.user;
 
   const canSaveEdit = useMemo(() => {
     return Boolean(
       editDraft &&
         editDraft.title.trim().length > 0 &&
-        editDraft.body.trim().length > 0 &&
-        !isSavingEdit
+        hasEditableContent(editDraft.blocks) &&
+        !isSavingEdit &&
+        !isPickingImages
     );
-  }, [editDraft, isSavingEdit]);
+  }, [editDraft, isPickingImages, isSavingEdit]);
+
+  const isEditingBusy = isSavingEdit || isPickingImages;
+
+  function openEditDraft(post: MyPost) {
+    const blocks = parseBodyToBlocks(post.body);
+    const firstImage = blocks.find((block) => block.type === "image");
+    setEditDraft({
+      id: post.id,
+      title: post.title,
+      blocks,
+      thumbnailBlockId: firstImage?.id ?? null
+    });
+  }
+
+  function updateParagraphBlock(blockId: string, text: string) {
+    setEditDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        blocks: current.blocks.map((block) =>
+          block.id === blockId && block.type === "paragraph" ? { ...block, text } : block
+        )
+      };
+    });
+  }
+
+  function addParagraphBlock() {
+    setEditDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        blocks: [...current.blocks, createParagraphBlock()]
+      };
+    });
+  }
+
+  function removeEditBlock(blockId: string) {
+    setEditDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextBlocks = current.blocks.filter((block) => block.id !== blockId);
+      return {
+        ...current,
+        blocks: nextBlocks.length > 0 ? nextBlocks : [createParagraphBlock()],
+        thumbnailBlockId:
+          current.thumbnailBlockId === blockId ? null : current.thumbnailBlockId
+      };
+    });
+  }
+
+  function selectThumbnailBlock(blockId: string) {
+    setEditDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        thumbnailBlockId: blockId
+      };
+    });
+  }
+
+  async function insertEditImages() {
+    if (!editDraft || isEditingBusy) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsPickingImages(true);
+
+    try {
+      const selected = await pickComposeImages([]);
+      const unique = dedupeSelectedImages(selected);
+
+      if (unique.length === 0) {
+        setIsPickingImages(false);
+        return;
+      }
+
+      const nextImageBlocks: EditImageBlock[] = unique.map((image) => ({
+        id: createBlockId("image"),
+        type: "image",
+        localUri: image.localUri,
+        fileName: image.fileName,
+        mimeType: image.mimeType,
+        width: image.width,
+        height: image.height
+      }));
+
+      setEditDraft((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          blocks: [...current.blocks, ...nextImageBlocks]
+        };
+      });
+      setIsPickingImages(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "이미지를 선택할 수 없습니다.");
+      setIsPickingImages(false);
+    }
+  }
 
   async function saveEdit() {
     if (!editDraft || !authUserId || !canSaveEdit) {
@@ -129,11 +616,81 @@ export default function MyPostsScreen() {
     setErrorMessage(null);
     setIsSavingEdit(true);
 
+    const localImages = collectLocalImages(editDraft.blocks);
+    const imageUrlByLocalUri = new Map<string, string>();
+    const storagePathByLocalUri = new Map<string, string>();
+
+    if (localImages.length > 0) {
+      const uploadResult = await uploadComposeImages({
+        postId: editDraft.id,
+        userId: authUserId,
+        images: localImages
+      });
+
+      uploadResult.uploaded.forEach((uploaded) => {
+        imageUrlByLocalUri.set(uploaded.localUri, uploaded.imageUrl);
+        storagePathByLocalUri.set(uploaded.localUri, uploaded.storagePath);
+      });
+
+      if (uploadResult.failed.length > 0) {
+        setErrorMessage(
+          `이미지 ${uploadResult.failed.length}개 업로드에 실패했습니다. 다시 시도해 주세요.`
+        );
+        setIsSavingEdit(false);
+        return;
+      }
+    }
+
+    const finalBody = serializeBlocksToBody({
+      blocks: editDraft.blocks,
+      imageUrlByLocalUri
+    });
+
+    if (!finalBody.trim()) {
+      setErrorMessage("내용을 입력해 주세요.");
+      setIsSavingEdit(false);
+      return;
+    }
+
+    const { data: existingPostImages, error: existingPostImagesError } = await supabase
+      .from("post_images")
+      .select("id, image_url, storage_path, sort_order")
+      .eq("post_id", editDraft.id)
+      .order("sort_order", { ascending: true })
+      .order("id", { ascending: true });
+
+    if (existingPostImagesError) {
+      setErrorMessage(mapErrorMessage(existingPostImagesError));
+      setIsSavingEdit(false);
+      return;
+    }
+
+    const existingImageRows = (existingPostImages ?? []) as Array<{
+      id: number;
+      image_url: string;
+      storage_path: string;
+      sort_order: number;
+    }>;
+
+    const { rows: finalPostImageRows, unresolvedImageUrls } = buildFinalPostImageRows({
+      postId: editDraft.id,
+      blocks: editDraft.blocks,
+      imageUrlByLocalUri,
+      storagePathByLocalUri,
+      existingImageRows
+    });
+
+    if (unresolvedImageUrls.length > 0) {
+      setErrorMessage("일부 이미지 정보를 확인할 수 없어 저장할 수 없습니다.");
+      setIsSavingEdit(false);
+      return;
+    }
+
     const { error } = await supabase
       .from("posts")
       .update({
         title: editDraft.title.trim(),
-        body: editDraft.body.trim()
+        body: finalBody
       })
       .eq("id", editDraft.id)
       .eq("author_id", authUserId);
@@ -142,6 +699,66 @@ export default function MyPostsScreen() {
       setErrorMessage(error.message);
       setIsSavingEdit(false);
       return;
+    }
+
+    const { error: deletePostImagesError } = await supabase
+      .from("post_images")
+      .delete()
+      .eq("post_id", editDraft.id);
+
+    if (deletePostImagesError) {
+      setErrorMessage(mapErrorMessage(deletePostImagesError));
+      setIsSavingEdit(false);
+      return;
+    }
+
+    if (finalPostImageRows.length > 0) {
+      const { error: insertPostImagesError } = await supabase
+        .from("post_images")
+        .insert(finalPostImageRows);
+
+      if (insertPostImagesError) {
+        if (existingImageRows.length > 0) {
+          await supabase.from("post_images").insert(
+            existingImageRows.map((row) => ({
+              post_id: editDraft.id,
+              image_url: row.image_url,
+              storage_path: row.storage_path,
+              sort_order: row.sort_order
+            }))
+          );
+        }
+
+        setErrorMessage(mapErrorMessage(insertPostImagesError));
+        setIsSavingEdit(false);
+        return;
+      }
+    }
+
+    const storagePathByImageUrl = new Map<string, string>();
+    finalPostImageRows.forEach((row) => {
+      if (!storagePathByImageUrl.has(row.image_url)) {
+        storagePathByImageUrl.set(row.image_url, row.storage_path);
+      }
+    });
+
+    const thumbnailCandidate = getThumbnailCandidate({
+      blocks: editDraft.blocks,
+      thumbnailBlockId: editDraft.thumbnailBlockId,
+      imageUrlByLocalUri,
+      storagePathByLocalUri,
+      storagePathByImageUrl
+    });
+
+    try {
+      await updatePostMetadata({
+        postId: editDraft.id,
+        abstract: buildAbstractFromBody(finalBody),
+        thumbnailImageUrl: thumbnailCandidate.imageUrl,
+        thumbnailStoragePath: thumbnailCandidate.storagePath
+      });
+    } catch {
+      setErrorMessage("글은 저장되었지만 썸네일 동기화에 실패했습니다.");
     }
 
     setEditDraft(null);
@@ -252,7 +869,7 @@ export default function MyPostsScreen() {
               <View style={styles.actionRow}>
                 <Pressable
                   style={styles.secondaryButton}
-                  onPress={() => setEditDraft({ id: post.id, title: post.title, body: post.body })}
+                  onPress={() => openEditDraft(post)}
                 >
                   <Text style={styles.secondaryButtonLabel}>수정</Text>
                 </Pressable>
@@ -272,52 +889,155 @@ export default function MyPostsScreen() {
       <Modal visible={Boolean(editDraft)} transparent animationType="fade" onRequestClose={() => setEditDraft(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setEditDraft(null)}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            <Text style={styles.modalTitle}>글 수정</Text>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent}>
+              <Text style={styles.modalTitle}>글 수정</Text>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>제목</Text>
-              <TextInput
-                value={editDraft?.title ?? ""}
-                onChangeText={(value) =>
-                  setEditDraft((current) => (current ? { ...current, title: value } : current))
-                }
-                style={styles.fieldInput}
-                placeholder="제목"
-                placeholderTextColor={colors.textMuted}
-              />
-            </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>제목</Text>
+                <TextInput
+                  value={editDraft?.title ?? ""}
+                  onChangeText={(value) =>
+                    setEditDraft((current) => (current ? { ...current, title: value } : current))
+                  }
+                  style={styles.fieldInput}
+                  placeholder="제목"
+                  placeholderTextColor={colors.textMuted}
+                />
+              </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>내용</Text>
-              <TextInput
-                value={editDraft?.body ?? ""}
-                onChangeText={(value) =>
-                  setEditDraft((current) => (current ? { ...current, body: value } : current))
-                }
-                style={[styles.fieldInput, styles.bodyInput]}
-                placeholder="내용"
-                placeholderTextColor={colors.textMuted}
-                multiline
-                textAlignVertical="top"
-              />
-            </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>내용 블록</Text>
+                {editDraft?.blocks.map((block, index) => {
+                  if (block.type === "paragraph") {
+                    return (
+                      <View key={block.id} style={styles.blockCard}>
+                        <Text style={styles.blockLabel}>문단 {index + 1}</Text>
+                        <TextInput
+                          value={block.text}
+                          onChangeText={(value) => updateParagraphBlock(block.id, value)}
+                          style={[styles.fieldInput, styles.bodyInput]}
+                          placeholder="내용을 입력하세요."
+                          placeholderTextColor={colors.textMuted}
+                          multiline
+                          textAlignVertical="top"
+                        />
+                        <View style={styles.blockActionRow}>
+                          <Pressable
+                            style={styles.secondaryButton}
+                            onPress={() => removeEditBlock(block.id)}
+                          >
+                            <Text style={styles.secondaryButtonLabel}>블록 삭제</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                  }
 
-            <View style={styles.modalActionRow}>
-              <Pressable style={styles.secondaryButton} onPress={() => setEditDraft(null)}>
-                <Text style={styles.secondaryButtonLabel}>취소</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.primaryButton, !canSaveEdit && styles.buttonDisabled]}
-                disabled={!canSaveEdit}
-                onPress={() => {
-                  void saveEdit();
-                }}
-              >
-                <Text style={styles.primaryButtonLabel}>
-                  {isSavingEdit ? "저장 중..." : "저장"}
-                </Text>
-              </Pressable>
-            </View>
+                  const imageUri = block.localUri ?? block.imageUrl ?? "";
+                  const isThumbnail = editDraft?.thumbnailBlockId === block.id;
+                  const loadState =
+                    imageLoadStateByBlockId[block.id] ?? (block.localUri ? "loaded" : "loading");
+                  const isImageReady = loadState === "loaded";
+
+                  return (
+                    <View key={block.id} style={styles.blockCard}>
+                      <Text style={styles.blockLabel}>이미지 {index + 1}</Text>
+                      {imageUri.length > 0 ? (
+                        <View style={styles.imagePreviewContainer}>
+                          {!isImageReady ? (
+                            <View style={styles.imagePreviewPlaceholder}>
+                              <Text style={styles.imagePreviewPlaceholderLabel}>
+                                {loadState === "error"
+                                  ? "이미지를 불러올 수 없습니다."
+                                  : "이미지 불러오는 중..."}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <Image
+                            source={{ uri: imageUri }}
+                            style={[styles.imagePreview, !isImageReady && styles.imagePreviewHidden]}
+                            resizeMode="cover"
+                            onLoadStart={() =>
+                              setImageLoadStateByBlockId((current) => ({
+                                ...current,
+                                [block.id]: "loading"
+                              }))
+                            }
+                            onLoadEnd={() =>
+                              setImageLoadStateByBlockId((current) => ({
+                                ...current,
+                                [block.id]: "loaded"
+                              }))
+                            }
+                            onError={() =>
+                              setImageLoadStateByBlockId((current) => ({
+                                ...current,
+                                [block.id]: "error"
+                              }))
+                            }
+                          />
+                        </View>
+                      ) : (
+                        <Text style={styles.metaText}>이미지 미리보기를 불러올 수 없습니다.</Text>
+                      )}
+                      <Text style={styles.metaText}>
+                        {block.localUri ? "새 이미지 (저장 시 업로드)" : "기존 이미지"}
+                      </Text>
+                      <View style={styles.blockActionRow}>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={() => selectThumbnailBlock(block.id)}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>
+                            {isThumbnail ? "썸네일 선택됨" : "썸네일 선택"}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={() => removeEditBlock(block.id)}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>블록 삭제</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+
+                <View style={styles.insertRow}>
+                  <Pressable style={styles.secondaryButton} onPress={addParagraphBlock}>
+                    <Text style={styles.secondaryButtonLabel}>문단 추가</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.secondaryButton, isEditingBusy && styles.buttonDisabled]}
+                    onPress={() => {
+                      void insertEditImages();
+                    }}
+                    disabled={isEditingBusy}
+                  >
+                    <Text style={styles.secondaryButtonLabel}>
+                      {isPickingImages ? "이미지 선택 중..." : "이미지 추가"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.modalActionRow}>
+                <Pressable style={styles.secondaryButton} onPress={() => setEditDraft(null)}>
+                  <Text style={styles.secondaryButtonLabel}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.primaryButton, !canSaveEdit && styles.buttonDisabled]}
+                  disabled={!canSaveEdit}
+                  onPress={() => {
+                    void saveEdit();
+                  }}
+                >
+                  <Text style={styles.primaryButtonLabel}>
+                    {isSavingEdit ? "저장 중..." : "저장"}
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -428,6 +1148,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg
   },
   modalCard: {
+    maxHeight: "90%",
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
@@ -460,6 +1181,61 @@ const styles = StyleSheet.create({
   },
   bodyInput: {
     minHeight: 120
+  },
+  blockCard: {
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: spacing.sm
+  },
+  blockLabel: {
+    fontSize: typography.caption,
+    fontWeight: "700",
+    color: colors.textMuted
+  },
+  blockActionRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  imagePreview: {
+    width: "100%",
+    height: 180,
+    borderRadius: radius.md,
+    backgroundColor: colors.border
+  },
+  imagePreviewContainer: {
+    width: "100%",
+    height: 180
+  },
+  imagePreviewHidden: {
+    opacity: 0
+  },
+  imagePreviewPlaceholder: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1
+  },
+  imagePreviewPlaceholderLabel: {
+    fontSize: typography.caption,
+    color: colors.textMuted
+  },
+  insertRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  modalScroll: {
+    maxHeight: "100%"
+  },
+  modalScrollContent: {
+    gap: spacing.md
   },
   modalActionRow: {
     flexDirection: "row",

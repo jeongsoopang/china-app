@@ -519,6 +519,10 @@ export default function MeScreen() {
   const [selectedProfileImage, setSelectedProfileImage] = useState<SelectedProfileImage | null>(null);
   const [selectedProfileBackgroundImage, setSelectedProfileBackgroundImage] =
     useState<SelectedProfileImage | null>(null);
+  const [isProfileBackgroundImageLoaded, setIsProfileBackgroundImageLoaded] = useState(false);
+  const [isAvatarImageLoaded, setIsAvatarImageLoaded] = useState(false);
+  const [isProfilePreviewImageLoaded, setIsProfilePreviewImageLoaded] = useState(false);
+  const [isBackgroundPreviewImageLoaded, setIsBackgroundPreviewImageLoaded] = useState(false);
   const [cropSourceImage, setCropSourceImage] = useState<SelectedProfileImage | null>(null);
   const [cropTarget, setCropTarget] = useState<CropTarget>("avatar");
   const [cropZoom, setCropZoom] = useState<number>(PROFILE_CROP_MIN_ZOOM);
@@ -563,6 +567,13 @@ export default function MeScreen() {
   const profileAvatarUrl =
     avatarUrlOverride ?? auth.user?.profile?.avatar_url ?? metadataAvatarUrl ?? null;
   const profileBackgroundUrl = profileBackgroundUrlOverride ?? metadataProfileBackgroundUrl ?? null;
+  const profileHeroBackgroundImageUri =
+    selectedProfileBackgroundImage?.localUri ?? profileBackgroundUrl ?? null;
+  const profileHeroAvatarImageUri = profileAvatarUrl;
+  const profileModalAvatarPreviewUri =
+    selectedProfileImage?.localUri ?? profileAvatarUrl ?? null;
+  const profileModalBackgroundPreviewUri =
+    selectedProfileBackgroundImage?.localUri ?? profileBackgroundUrl ?? null;
 
   const email = auth.user?.authUser.email ?? "-";
   const role = auth.user?.profile?.role ?? "-";
@@ -678,6 +689,34 @@ export default function MeScreen() {
   useEffect(() => {
     setProfileNameDraft(displayName !== "-" ? displayName : "");
   }, [displayName]);
+
+  useEffect(() => {
+    if (profileAvatarUrl) {
+      void Image.prefetch(profileAvatarUrl);
+    }
+  }, [profileAvatarUrl]);
+
+  useEffect(() => {
+    if (profileBackgroundUrl) {
+      void Image.prefetch(profileBackgroundUrl);
+    }
+  }, [profileBackgroundUrl]);
+
+  useEffect(() => {
+    setIsProfileBackgroundImageLoaded(profileHeroBackgroundImageUri ? false : true);
+  }, [profileHeroBackgroundImageUri]);
+
+  useEffect(() => {
+    setIsAvatarImageLoaded(profileHeroAvatarImageUri ? false : true);
+  }, [profileHeroAvatarImageUri]);
+
+  useEffect(() => {
+    setIsProfilePreviewImageLoaded(profileModalAvatarPreviewUri ? false : true);
+  }, [profileModalAvatarPreviewUri]);
+
+  useEffect(() => {
+    setIsBackgroundPreviewImageLoaded(profileModalBackgroundPreviewUri ? false : true);
+  }, [profileModalBackgroundPreviewUri]);
 
   useEffect(() => {
     setIsPrivateProfile(profilePrivacyFromSession);
@@ -1384,12 +1423,25 @@ export default function MeScreen() {
         <View style={styles.pageBody}>
           <View style={styles.profileHeroStack}>
             <View style={styles.profileBackgroundCard} pointerEvents="none">
-              {selectedProfileBackgroundImage?.localUri || profileBackgroundUrl ? (
-                <Image
-                  source={{ uri: selectedProfileBackgroundImage?.localUri ?? profileBackgroundUrl ?? "" }}
-                  style={styles.profileBackgroundImage}
-                  resizeMode="cover"
-                />
+              {profileHeroBackgroundImageUri ? (
+                <View style={styles.profileBackgroundImageContainer}>
+                  {!isProfileBackgroundImageLoaded ? (
+                    <View style={styles.imageLoadingOverlay}>
+                      <Text style={styles.imageLoadingLabel}>Loading image...</Text>
+                    </View>
+                  ) : null}
+                  <Image
+                    source={{ uri: profileHeroBackgroundImageUri }}
+                    style={[
+                      styles.profileBackgroundImage,
+                      !isProfileBackgroundImageLoaded && styles.imageHidden
+                    ]}
+                    resizeMode="cover"
+                    onLoadStart={() => setIsProfileBackgroundImageLoaded(false)}
+                    onLoadEnd={() => setIsProfileBackgroundImageLoaded(true)}
+                    onError={() => setIsProfileBackgroundImageLoaded(true)}
+                  />
+                </View>
               ) : (
                 <View style={styles.profileBackgroundFallback}>
                   <View style={styles.profileBackgroundFallbackTone} />
@@ -1404,8 +1456,22 @@ export default function MeScreen() {
           <View style={styles.profileOverlayContent}>
             <View style={styles.profileHeroTop}>
               <View style={styles.avatarCircle}>
-                {profileAvatarUrl ? (
-                  <Image source={{ uri: profileAvatarUrl }} style={styles.avatarImage} resizeMode="cover" />
+                {profileHeroAvatarImageUri ? (
+                  <>
+                    {!isAvatarImageLoaded ? (
+                      <View style={styles.avatarLoadingPlaceholder}>
+                        <Text style={styles.imageLoadingLabel}>...</Text>
+                      </View>
+                    ) : null}
+                    <Image
+                      source={{ uri: profileHeroAvatarImageUri }}
+                      style={[styles.avatarImage, !isAvatarImageLoaded && styles.imageHidden]}
+                      resizeMode="cover"
+                      onLoadStart={() => setIsAvatarImageLoaded(false)}
+                      onLoadEnd={() => setIsAvatarImageLoaded(true)}
+                      onError={() => setIsAvatarImageLoaded(true)}
+                    />
+                  </>
                 ) : (
                   <Text style={styles.avatarLabel}>{avatarLetter}</Text>
                 )}
@@ -1887,12 +1953,22 @@ export default function MeScreen() {
                 <View style={styles.profileImagePlaceholderBox}>
                   <Text style={styles.profileImagePlaceholderTitle}>프로필 이미지</Text>
                   <View style={styles.profileImagePreviewWrap}>
-                    {selectedProfileImage?.localUri || profileAvatarUrl ? (
-                      <Image
-                        source={{ uri: selectedProfileImage?.localUri ?? profileAvatarUrl ?? "" }}
-                        style={styles.profileImagePreview}
-                        resizeMode="cover"
-                      />
+                    {profileModalAvatarPreviewUri ? (
+                      <View style={styles.profilePreviewImageContainer}>
+                        {!isProfilePreviewImageLoaded ? (
+                          <View style={styles.imageLoadingOverlay}>
+                            <Text style={styles.imageLoadingLabel}>Loading image...</Text>
+                          </View>
+                        ) : null}
+                        <Image
+                          source={{ uri: profileModalAvatarPreviewUri }}
+                          style={[styles.profileImagePreview, !isProfilePreviewImageLoaded && styles.imageHidden]}
+                          resizeMode="cover"
+                          onLoadStart={() => setIsProfilePreviewImageLoaded(false)}
+                          onLoadEnd={() => setIsProfilePreviewImageLoaded(true)}
+                          onError={() => setIsProfilePreviewImageLoaded(true)}
+                        />
+                      </View>
                     ) : (
                       <Text style={styles.avatarLabel}>{avatarLetter}</Text>
                     )}
@@ -1908,17 +1984,25 @@ export default function MeScreen() {
                 <View style={styles.profileImagePlaceholderBox}>
                   <Text style={styles.profileImagePlaceholderTitle}>배경 카드 이미지</Text>
                   <View style={styles.profileBackgroundPreviewWrap}>
-                    {selectedProfileBackgroundImage?.localUri || profileBackgroundUrl ? (
-                      <Image
-                        source={{
-                          uri:
-                            selectedProfileBackgroundImage?.localUri ??
-                            profileBackgroundUrl ??
-                            ""
-                        }}
-                        style={styles.profileBackgroundPreview}
-                        resizeMode="cover"
-                      />
+                    {profileModalBackgroundPreviewUri ? (
+                      <View style={styles.profilePreviewImageContainer}>
+                        {!isBackgroundPreviewImageLoaded ? (
+                          <View style={styles.imageLoadingOverlay}>
+                            <Text style={styles.imageLoadingLabel}>Loading image...</Text>
+                          </View>
+                        ) : null}
+                        <Image
+                          source={{ uri: profileModalBackgroundPreviewUri }}
+                          style={[
+                            styles.profileBackgroundPreview,
+                            !isBackgroundPreviewImageLoaded && styles.imageHidden
+                          ]}
+                          resizeMode="cover"
+                          onLoadStart={() => setIsBackgroundPreviewImageLoaded(false)}
+                          onLoadEnd={() => setIsBackgroundPreviewImageLoaded(true)}
+                          onError={() => setIsBackgroundPreviewImageLoaded(true)}
+                        />
+                      </View>
                     ) : (
                       <Text style={styles.profileBackgroundEmptyText}>Mood Card</Text>
                     )}
@@ -2178,6 +2262,10 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%"
   },
+  profileBackgroundImageContainer: {
+    width: "100%",
+    height: "100%"
+  },
   profileBackgroundFallback: {
     flex: 1,
     justifyContent: "center",
@@ -2235,6 +2323,13 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: "100%",
     height: "100%"
+  },
+  avatarLoadingPlaceholder: {
+    position: "absolute",
+    inset: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted
   },
   avatarLabel: {
     fontSize: 18,
@@ -2696,6 +2791,10 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%"
   },
+  profilePreviewImageContainer: {
+    width: "100%",
+    height: "100%"
+  },
   profileBackgroundPreviewWrap: {
     width: 132,
     height: Math.round(132 / MOOD_CARD_BACKGROUND_ASPECT_RATIO),
@@ -2710,6 +2809,21 @@ const styles = StyleSheet.create({
   profileBackgroundPreview: {
     width: "100%",
     height: "100%"
+  },
+  imageLoadingOverlay: {
+    position: "absolute",
+    inset: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
+    zIndex: 1
+  },
+  imageLoadingLabel: {
+    fontSize: typography.caption,
+    color: colors.textMuted
+  },
+  imageHidden: {
+    opacity: 0
   },
   profileBackgroundEmptyText: {
     fontSize: typography.caption,

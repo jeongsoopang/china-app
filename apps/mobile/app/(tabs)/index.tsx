@@ -151,6 +151,7 @@ export default function HomeScreen() {
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [isGuideModalVisible, setIsGuideModalVisible] = useState(false);
+  const [isGuideImageLoaded, setIsGuideImageLoaded] = useState(false);
   const [isAnnouncementModalVisible, setIsAnnouncementModalVisible] = useState(false);
   const [homeGuideContent, setHomeGuideContent] = useState(DEFAULT_HOME_GUIDE_CONTENT);
   const [homeAnnouncement, setHomeAnnouncement] = useState<AnnouncementDetail | null>(null);
@@ -210,6 +211,10 @@ export default function HomeScreen() {
 
     return () => clearTimeout(timeout);
   }, [snapStep]);
+
+  useEffect(() => {
+    void Image.prefetch(HOME_GUIDE_IMAGE_URL);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -620,11 +625,23 @@ export default function HomeScreen() {
                 <Text style={styles.guideModalTitle}>{homeGuideContent.title}</Text>
 
                 <View style={styles.guideModalImageFrame}>
-                  <Image
-                    source={{ uri: HOME_GUIDE_IMAGE_URL }}
-                    style={styles.guideModalImage}
-                    resizeMode="cover"
-                  />
+                  <View style={styles.guideModalImageContainer}>
+                    {!isGuideImageLoaded ? (
+                      <View style={styles.guideModalImagePlaceholder}>
+                        <Text style={styles.guideModalImagePlaceholderLabel}>
+                          {isKo ? "이미지 불러오는 중..." : "Loading image..."}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <Image
+                      source={{ uri: HOME_GUIDE_IMAGE_URL }}
+                      style={[styles.guideModalImage, !isGuideImageLoaded && styles.guideModalImageHidden]}
+                      resizeMode="cover"
+                      onLoadStart={() => setIsGuideImageLoaded(false)}
+                      onLoadEnd={() => setIsGuideImageLoaded(true)}
+                      onError={() => setIsGuideImageLoaded(true)}
+                    />
+                  </View>
                 </View>
 
                 <Text style={styles.guideModalBody}>{homeGuideContent.body}</Text>
@@ -1016,16 +1033,23 @@ const styles = StyleSheet.create({
     borderColor: "#e7d7bf",
     backgroundColor: "#f9f1e2"
   },
+  guideModalImageContainer: {
+    width: "100%",
+    aspectRatio: 16 / 9
+  },
   guideModalImage: {
     width: "100%",
-    aspectRatio: 16 / 9,
+    height: "100%",
     borderRadius: radius.md,
     backgroundColor: "#e8dbc7"
   },
+  guideModalImageHidden: {
+    opacity: 0
+  },
   guideModalImagePlaceholder: {
-    width: "100%",
-    aspectRatio: 16 / 9,
-    borderRadius: radius.lg,
+    position: "absolute",
+    inset: 0,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: "#e2d0b4",
     backgroundColor: "#f5e8d5",
