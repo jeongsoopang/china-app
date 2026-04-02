@@ -400,8 +400,16 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       return "Profile is still loading.";
     }
 
+    if (state.action === "submitting") {
+      return "Publishing post...";
+    }
+
+    if (state.action === "selecting_images") {
+      return "Selecting images...";
+    }
+
     if (isLoading) {
-      return "Composer is loading.";
+      return "Composer is initializing.";
     }
 
     if (!selectedSection) {
@@ -465,6 +473,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     isLoading,
     isSignedIn,
     profile,
+    state.action,
     selectedSection,
     selectedCategory,
     abstractRequired,
@@ -948,6 +957,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     }));
 
     try {
+      const submitterProfileId = state.profile.id;
       let resolvedUniversitySlug = state.selectedUniversitySlug;
 
       if (!universitySelectorDisabled && !resolvedUniversitySlug && verifiedUniversityId) {
@@ -977,7 +987,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           const introPostKey = Date.now();
           const uploadResult = await uploadComposeImages({
             postId: introPostKey,
-            userId: state.profile.id,
+            userId: submitterProfileId,
             images: introImageUploads
           });
 
@@ -998,7 +1008,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         await upsertChurchIntroContent({
           title: state.title.trim(),
           body: introBody,
-          userId: state.profile.id
+          userId: submitterProfileId
         });
         churchIntroPrefilledForProfileRef.current = null;
 
@@ -1034,6 +1044,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       });
       let uploadFailures: ImageUploadFailure[] = [];
       let finalBody = draftBody;
+      let thumbnailSourceForBackgroundUpload: SelectedComposeImage | null = null;
 
       if (postIdNumeric) {
         try {
@@ -1062,7 +1073,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         } else {
           const uploadResult = await uploadComposeImages({
             postId: postIdNumeric,
-            userId: state.profile.id,
+            userId: submitterProfileId,
             images: imageUploads
           });
 
@@ -1098,41 +1109,13 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
             thumbnailBlockId: state.thumbnailBlockId,
             imageUrlByLocalUri
           });
-          let thumbnailImageUrl = thumbnailCandidate.imageUrl;
-          let thumbnailStoragePath = thumbnailCandidate.storagePath;
-
           if (thumbnailCandidate.localUri) {
             const thumbnailSource = imageUploads.find(
               (image) => image.localUri === thumbnailCandidate.localUri
             );
 
             if (thumbnailSource) {
-              const thumbnailUploadResult = await uploadComposeThumbnail({
-                postId: postIdNumeric,
-                userId: state.profile.id,
-                image: thumbnailSource
-              });
-
-              if (thumbnailUploadResult.uploaded) {
-                thumbnailImageUrl = thumbnailUploadResult.uploaded.imageUrl;
-                thumbnailStoragePath = thumbnailUploadResult.uploaded.storagePath;
-              } else if (thumbnailUploadResult.failed) {
-                infoMessages.push(
-                  `Post saved, but thumbnail upload failed: ${thumbnailUploadResult.failed.message}`
-                );
-              }
-            }
-          }
-
-          if (postIdNumeric) {
-            try {
-              await updatePostMetadata({
-                postId: postIdNumeric,
-                thumbnailImageUrl,
-                thumbnailStoragePath
-              });
-            } catch (error) {
-              infoMessages.push(`Post saved, but metadata update failed: ${mapCreatePostError(error)}`);
+              thumbnailSourceForBackgroundUpload = thumbnailSource;
             }
           }
 
@@ -1261,6 +1244,39 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
             }
           } catch (error) {
             console.error("[compose] award_post_points error", {
+              postId: postIdNumeric,
+              error
+            });
+          }
+        })();
+      }
+
+      if (thumbnailSourceForBackgroundUpload && postIdNumeric) {
+        void (async () => {
+          try {
+            const thumbnailUploadResult = await uploadComposeThumbnail({
+              postId: postIdNumeric,
+              userId: submitterProfileId,
+              image: thumbnailSourceForBackgroundUpload
+            });
+
+            if (!thumbnailUploadResult.uploaded) {
+              if (thumbnailUploadResult.failed) {
+                console.error("[compose] thumbnail upload error", {
+                  postId: postIdNumeric,
+                  error: thumbnailUploadResult.failed.message
+                });
+              }
+              return;
+            }
+
+            await updatePostMetadata({
+              postId: postIdNumeric,
+              thumbnailImageUrl: thumbnailUploadResult.uploaded.imageUrl,
+              thumbnailStoragePath: thumbnailUploadResult.uploaded.storagePath
+            });
+          } catch (error) {
+            console.error("[compose] thumbnail metadata update error", {
               postId: postIdNumeric,
               error
             });
