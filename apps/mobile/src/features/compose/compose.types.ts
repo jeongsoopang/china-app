@@ -66,6 +66,8 @@ export type ComposeImageBlock = {
   storagePath?: string;
   fileName?: string;
   mimeType?: string;
+  width?: number | null;
+  height?: number | null;
 };
 
 export type ComposeBlock = ComposeParagraphBlock | ComposeImageBlock;
@@ -79,6 +81,7 @@ export type SelectedComposeImage = {
 };
 
 export type UploadedPostImage = {
+  localUri: string;
   storagePath: string;
   imageUrl: string;
   fileName: string;
@@ -93,6 +96,11 @@ export type ImageUploadFailure = {
 export type UploadPostImagesResult = {
   uploaded: UploadedPostImage[];
   failed: ImageUploadFailure[];
+};
+
+export type UploadComposeThumbnailResult = {
+  uploaded: UploadedPostImage | null;
+  failed: ImageUploadFailure | null;
 };
 
 export type AttachPostImagesResult = {

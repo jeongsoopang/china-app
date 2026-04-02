@@ -2,6 +2,7 @@ import type { DbUserTier, UserProfileRow } from "@foryou/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   pickComposeImages,
+  uploadComposeThumbnail,
   uploadComposeImages
 } from "./compose-images.service";
 import {
@@ -147,7 +148,9 @@ function createImageBlock(image: SelectedComposeImage): ComposeBlock {
     type: "image",
     localUri: image.localUri,
     fileName: image.fileName,
-    mimeType: image.mimeType
+    mimeType: image.mimeType,
+    width: image.width,
+    height: image.height
   };
 }
 
@@ -254,8 +257,8 @@ function collectImageBlocks(blocks: ComposeBlock[]): SelectedComposeImage[] {
         localUri: block.localUri,
         fileName: block.fileName,
         mimeType: block.mimeType,
-        width: null,
-        height: null
+        width: block.width ?? null,
+        height: block.height ?? null
       }
     ];
   });
@@ -981,11 +984,8 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           introUploadFailures = uploadResult.failed;
 
           const imageUrlByLocalUri = new Map<string, string>();
-          uploadResult.uploaded.forEach((uploaded, index) => {
-            const source = introImageUploads[index];
-            if (source?.localUri) {
-              imageUrlByLocalUri.set(source.localUri, uploaded.imageUrl);
-            }
+          uploadResult.uploaded.forEach((uploaded) => {
+            imageUrlByLocalUri.set(uploaded.localUri, uploaded.imageUrl);
           });
 
           introBody = serializeBlocks({
@@ -1070,12 +1070,9 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
 
           const imageUrlByLocalUri = new Map<string, string>();
           const storagePathByLocalUri = new Map<string, string>();
-          uploadResult.uploaded.forEach((uploaded, index) => {
-            const source = imageUploads[index];
-            if (source?.localUri) {
-              imageUrlByLocalUri.set(source.localUri, uploaded.imageUrl);
-              storagePathByLocalUri.set(source.localUri, uploaded.storagePath);
-            }
+          uploadResult.uploaded.forEach((uploaded) => {
+            imageUrlByLocalUri.set(uploaded.localUri, uploaded.imageUrl);
+            storagePathByLocalUri.set(uploaded.localUri, uploaded.storagePath);
           });
 
           const nextBlocks = state.blocks.map((block) => {
@@ -1101,13 +1098,38 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
             thumbnailBlockId: state.thumbnailBlockId,
             imageUrlByLocalUri
           });
+          let thumbnailImageUrl = thumbnailCandidate.imageUrl;
+          let thumbnailStoragePath = thumbnailCandidate.storagePath;
+
+          if (thumbnailCandidate.localUri) {
+            const thumbnailSource = imageUploads.find(
+              (image) => image.localUri === thumbnailCandidate.localUri
+            );
+
+            if (thumbnailSource) {
+              const thumbnailUploadResult = await uploadComposeThumbnail({
+                postId: postIdNumeric,
+                userId: state.profile.id,
+                image: thumbnailSource
+              });
+
+              if (thumbnailUploadResult.uploaded) {
+                thumbnailImageUrl = thumbnailUploadResult.uploaded.imageUrl;
+                thumbnailStoragePath = thumbnailUploadResult.uploaded.storagePath;
+              } else if (thumbnailUploadResult.failed) {
+                infoMessages.push(
+                  `Post saved, but thumbnail upload failed: ${thumbnailUploadResult.failed.message}`
+                );
+              }
+            }
+          }
 
           if (postIdNumeric) {
             try {
               await updatePostMetadata({
                 postId: postIdNumeric,
-                thumbnailImageUrl: thumbnailCandidate.imageUrl,
-                thumbnailStoragePath: thumbnailCandidate.storagePath
+                thumbnailImageUrl,
+                thumbnailStoragePath
               });
             } catch (error) {
               infoMessages.push(`Post saved, but metadata update failed: ${mapCreatePostError(error)}`);
@@ -1273,7 +1295,7 @@ function getThumbnailCandidate(params: {
   blocks: ComposeBlock[];
   thumbnailBlockId: string | null;
   imageUrlByLocalUri?: Map<string, string>;
-}): { imageUrl: string | null; storagePath: string | null } {
+}): { imageUrl: string | null; storagePath: string | null; localUri: string | null } {
   const { blocks, thumbnailBlockId, imageUrlByLocalUri } = params;
 
   const imageBlocks = blocks.filter((block) => block.type === "image");
@@ -1283,7 +1305,7 @@ function getThumbnailCandidate(params: {
   const candidate = preferred ?? imageBlocks[0];
 
   if (!candidate || candidate.type !== "image") {
-    return { imageUrl: null, storagePath: null };
+    return { imageUrl: null, storagePath: null, localUri: null };
   }
 
   const localUri = candidate.localUri ?? null;
@@ -1291,6 +1313,7 @@ function getThumbnailCandidate(params: {
 
   return {
     imageUrl: imageUrl ?? null,
-    storagePath: candidate.storagePath ?? null
+    storagePath: candidate.storagePath ?? null,
+    localUri
   };
 }
