@@ -589,7 +589,7 @@ export default function UniversityDetailScreen() {
     };
   }, [resolvedUniversityId]);
 
-  const postQueryLimit = isSjtuCampusLanding ? 3 : 30;
+  const postQueryLimit = isSjtuCampusLanding ? 3 : 12;
 
   const loadPosts = useCallback(async () => {
     if (!university) {
@@ -613,7 +613,7 @@ export default function UniversityDetailScreen() {
     setIsLoading(true);
     setPostsError(null);
 
-    const attemptWithMetadata = async () => {
+    const attemptWithAbstractAndThumbnail = async () => {
       let query = supabase
         .from("posts")
         .select(
@@ -624,6 +624,54 @@ export default function UniversityDetailScreen() {
           title,
           body,
           abstract,
+          thumbnail_image_url,
+          degree,
+          like_count,
+          comment_count,
+          view_count,
+          created_at,
+          sections!inner ( code ),
+          categories ( slug ),
+          post_images ( image_url, sort_order )
+        `
+        )
+        .eq("university_id", university.id)
+        .order("created_at", { ascending: false })
+        .limit(postQueryLimit);
+
+      if (filter === "notice") {
+        query = query
+          .eq("sections.code", "life")
+          .in("categories.slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
+      } else if (filter === "all") {
+        query = query
+          .in("sections.code", ["life", "study", "qa"])
+          .neq("categories.slug", "life-notice")
+          .neq("categories.slug", "life-opportunity")
+          .neq("categories.slug", "life-info-sharing");
+      } else if (filter === "life") {
+        query = query
+          .eq("sections.code", "life")
+          .neq("categories.slug", "life-notice")
+          .neq("categories.slug", "life-opportunity")
+          .neq("categories.slug", "life-info-sharing");
+      } else {
+        query = query.eq("sections.code", filter);
+      }
+
+      return query;
+    };
+
+    const attemptWithThumbnailOnly = async () => {
+      let query = supabase
+        .from("posts")
+        .select(
+          `
+          id,
+          author_id,
+          category_id,
+          title,
+          body,
           thumbnail_image_url,
           degree,
           like_count,
@@ -709,14 +757,28 @@ export default function UniversityDetailScreen() {
       return query;
     };
 
+    const isMissingColumnError = (message: string | null | undefined, columnName: string) => {
+      if (!message) {
+        return false;
+      }
+
+      return /column/i.test(message) && new RegExp(`\\b${columnName}\\b`, "i").test(message);
+    };
+
     let data: unknown = null;
     let error: { message: string } | null = null;
 
-    const withMetadata = await attemptWithMetadata();
-    data = withMetadata.data;
-    error = withMetadata.error ? { message: withMetadata.error.message } : null;
+    const withAbstractAndThumbnail = await attemptWithAbstractAndThumbnail();
+    data = withAbstractAndThumbnail.data;
+    error = withAbstractAndThumbnail.error ? { message: withAbstractAndThumbnail.error.message } : null;
 
-    if (error && /column/i.test(error.message) && /abstract|thumbnail_image_url/i.test(error.message)) {
+    if (error && isMissingColumnError(error.message, "abstract")) {
+      const withThumbnailOnly = await attemptWithThumbnailOnly();
+      data = withThumbnailOnly.data;
+      error = withThumbnailOnly.error ? { message: withThumbnailOnly.error.message } : null;
+    }
+
+    if (error && isMissingColumnError(error.message, "thumbnail_image_url")) {
       const withoutMetadata = await attemptWithoutMetadata();
       data = withoutMetadata.data;
       error = withoutMetadata.error ? { message: withoutMetadata.error.message } : null;
@@ -976,7 +1038,7 @@ export default function UniversityDetailScreen() {
   useEffect(() => {
     const urls = posts
       .slice(0, isSjtuCampusLanding ? 3 : 6)
-      .map((post) => getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images));
+      .map((post) => getCardThumbnailUrl(post.thumbnailImageUrl));
 
     prefetchRemoteImages(urls);
   }, [isSjtuCampusLanding, posts]);
@@ -1169,8 +1231,8 @@ export default function UniversityDetailScreen() {
             <Text style={styles.metaText}>No posts yet.</Text>
           ) : null}
           {posts.slice(0, 3).map((post) => {
-            const previewText = getPreviewText(post.abstract, post.body);
-            const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+            const previewText = getAbstractPreviewText(post.abstract);
+            const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
             const labelParts = [post.section?.slug, post.category?.slug].filter(Boolean).join(" · ");
             const createdLabel = formatDate(post.createdAt);
 
@@ -1491,8 +1553,8 @@ export default function UniversityDetailScreen() {
             </Text>
 
             {posts.slice(0, 4).map((post) => {
-              const previewText = getPreviewText(post.abstract, post.body);
-              const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+              const previewText = getAbstractPreviewText(post.abstract);
+              const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
               const labelParts = [post.section?.slug, post.category?.slug].filter(Boolean).join(" · ");
               const createdLabel = formatDate(post.createdAt);
 
@@ -1635,8 +1697,8 @@ export default function UniversityDetailScreen() {
             ) : null}
 
             {recentQaPosts.map((post) => {
-              const previewText = getPreviewText(post.abstract, post.body);
-              const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+              const previewText = getAbstractPreviewText(post.abstract);
+              const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
               const labelParts = [post.section?.slug, post.category?.slug].filter(Boolean).join(" · ");
               const createdLabel = formatDate(post.createdAt);
 
@@ -1710,7 +1772,7 @@ export default function UniversityDetailScreen() {
       !(filter === "notice" && noticeLocked) &&
       posts.map((post) => {
         const previewText = getPreviewText(post.abstract, post.body);
-        const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+        const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
         const labelParts = [post.section?.slug, post.category?.slug].filter(Boolean).join(" · ");
         const createdLabel = formatDate(post.createdAt);
 
@@ -1804,22 +1866,17 @@ function getPreviewText(abstract: string | null, body: string): string {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-function getThumbnailUrl(
-  thumbnailImageUrl: string | null,
-  body: string,
-  images: { imageUrl: string; sortOrder: number | null }[]
-): string | null {
-  if (thumbnailImageUrl) {
-    return thumbnailImageUrl;
+function getAbstractPreviewText(abstract: string | null): string {
+  if (!abstract || abstract.trim().length === 0) {
+    return "";
   }
 
-  if (images.length > 0) {
-    const sorted = [...images].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    return sorted[0]?.imageUrl ?? null;
-  }
+  const trimmed = abstract.trim();
+  return trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
+}
 
-  const match = /<img\s+[^>]*src=["']([^"']+)["']/i.exec(body);
-  return match?.[1] ?? null;
+function getCardThumbnailUrl(thumbnailImageUrl: string | null): string | null {
+  return typeof thumbnailImageUrl === "string" && thumbnailImageUrl.length > 0 ? thumbnailImageUrl : null;
 }
 
 const styles = StyleSheet.create({

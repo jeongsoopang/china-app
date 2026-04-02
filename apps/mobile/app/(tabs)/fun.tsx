@@ -40,7 +40,7 @@ export default function FunScreen() {
     setIsLoading(true);
     setErrorMessage(null);
 
-    const attemptWithMetadata = async () => {
+    const attemptWithAbstractAndThumbnail = async () => {
       return supabase
         .from("posts")
         .select(
@@ -66,7 +66,35 @@ export default function FunScreen() {
           LIFE_CATEGORY_TABS.map((tab) => tab.slug)
         )
         .order("created_at", { ascending: false })
-        .limit(60);
+        .limit(24);
+    };
+
+    const attemptWithThumbnailOnly = async () => {
+      return supabase
+        .from("posts")
+        .select(
+          `
+          id,
+          author_id,
+          title,
+          body,
+          thumbnail_image_url,
+          like_count,
+          comment_count,
+          view_count,
+          created_at,
+          sections!inner ( code ),
+          categories ( slug ),
+          post_images ( image_url, sort_order )
+        `
+        )
+        .eq("sections.code", "fun")
+        .in(
+          "categories.slug",
+          LIFE_CATEGORY_TABS.map((tab) => tab.slug)
+        )
+        .order("created_at", { ascending: false })
+        .limit(24);
     };
 
     const attemptWithoutMetadata = async () => {
@@ -93,17 +121,31 @@ export default function FunScreen() {
           LIFE_CATEGORY_TABS.map((tab) => tab.slug)
         )
         .order("created_at", { ascending: false })
-        .limit(60);
+        .limit(24);
+    };
+
+    const isMissingColumnError = (message: string | null | undefined, columnName: string) => {
+      if (!message) {
+        return false;
+      }
+
+      return /column/i.test(message) && new RegExp(`\\b${columnName}\\b`, "i").test(message);
     };
 
     let data: unknown = null;
     let error: { message: string } | null = null;
 
-    const withMetadata = await attemptWithMetadata();
-    data = withMetadata.data;
-    error = withMetadata.error ? { message: withMetadata.error.message } : null;
+    const withAbstractAndThumbnail = await attemptWithAbstractAndThumbnail();
+    data = withAbstractAndThumbnail.data;
+    error = withAbstractAndThumbnail.error ? { message: withAbstractAndThumbnail.error.message } : null;
 
-    if (error && /column/i.test(error.message) && /abstract|thumbnail_image_url/i.test(error.message)) {
+    if (error && isMissingColumnError(error.message, "abstract")) {
+      const withThumbnailOnly = await attemptWithThumbnailOnly();
+      data = withThumbnailOnly.data;
+      error = withThumbnailOnly.error ? { message: withThumbnailOnly.error.message } : null;
+    }
+
+    if (error && isMissingColumnError(error.message, "thumbnail_image_url")) {
       const withoutMetadata = await attemptWithoutMetadata();
       data = withoutMetadata.data;
       error = withoutMetadata.error ? { message: withoutMetadata.error.message } : null;
@@ -195,6 +237,15 @@ export default function FunScreen() {
     return posts.filter((post) => post.categorySlug === selectedCategory);
   }, [posts, selectedCategory]);
 
+  useEffect(() => {
+    filteredPosts.slice(0, 8).forEach((post) => {
+      const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
+      if (thumbnailUrl) {
+        void Image.prefetch(thumbnailUrl);
+      }
+    });
+  }, [filteredPosts]);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <CityHeroHeader
@@ -230,7 +281,7 @@ export default function FunScreen() {
       <View style={styles.listWrap}>
         {filteredPosts.map((post) => {
           const previewText = getPreviewText(post.abstract, post.body);
-          const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+          const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
           return (
             <Link key={post.id} asChild href={`/posts/${post.id}`}>
               <Pressable style={styles.postCard}>
@@ -301,22 +352,8 @@ function getPreviewText(abstract: string | null, body: string): string {
   return text.length > 140 ? `${text.slice(0, 137)}...` : text;
 }
 
-function getThumbnailUrl(
-  thumbnailImageUrl: string | null,
-  body: string,
-  images: { imageUrl: string; sortOrder: number | null }[]
-): string | null {
-  if (thumbnailImageUrl) {
-    return thumbnailImageUrl;
-  }
-
-  if (images.length > 0) {
-    const sorted = [...images].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    return sorted[0]?.imageUrl ?? null;
-  }
-
-  const match = /<img\s+[^>]*src=["']([^"']+)["']/i.exec(body);
-  return match?.[1] ?? null;
+function getCardThumbnailUrl(thumbnailImageUrl: string | null): string | null {
+  return typeof thumbnailImageUrl === "string" && thumbnailImageUrl.length > 0 ? thumbnailImageUrl : null;
 }
 
 const styles = StyleSheet.create({

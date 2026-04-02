@@ -29,14 +29,14 @@ export async function fetchShanghaiPosts(params: {
   searchText?: string | null;
   limit?: number;
 }): Promise<ShanghaiPost[]> {
-  const { categorySlugs, searchText, limit = 120 } = params;
+  const { categorySlugs, searchText, limit = 24 } = params;
   if (categorySlugs.length === 0) {
     return [];
   }
 
   const normalizedSearch = normalizeSearch(searchText);
 
-  function attemptWithMetadata() {
+  function attemptWithAbstractAndThumbnail() {
     let query = supabase
       .from("posts")
       .select(
@@ -69,6 +69,38 @@ export async function fetchShanghaiPosts(params: {
     return query;
   }
 
+  function attemptWithThumbnailOnly() {
+    let query = supabase
+      .from("posts")
+      .select(
+        `
+      id,
+      author_id,
+      title,
+      body,
+      thumbnail_image_url,
+      like_count,
+      comment_count,
+      view_count,
+      created_at,
+      sections!inner ( code ),
+      categories!inner ( slug ),
+      post_images ( image_url, sort_order )
+    `
+      )
+      .eq("sections.code", "fun")
+      .in("categories.slug", categorySlugs)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (normalizedSearch) {
+      const escaped = normalizedSearch.replace(/,/g, "\\,").replace(/\./g, "\\.");
+      query = query.or(`title.ilike.%${escaped}%,body.ilike.%${escaped}%`);
+    }
+
+    return query;
+  }
+
   function attemptWithoutMetadata() {
     let query = supabase
       .from("posts")
@@ -94,23 +126,37 @@ export async function fetchShanghaiPosts(params: {
 
     if (normalizedSearch) {
       const escaped = normalizedSearch.replace(/,/g, "\\,").replace(/\./g, "\\.");
-      query = query.or(`title.ilike.%${escaped}%,body.ilike.%${escaped}%,abstract.ilike.%${escaped}%`);
+      query = query.or(`title.ilike.%${escaped}%,body.ilike.%${escaped}%`);
     }
 
     return query;
   }
 
+  function isMissingColumnError(message: string | null | undefined, columnName: string): boolean {
+    if (!message) {
+      return false;
+    }
+
+    return /column/i.test(message) && new RegExp(`\\b${columnName}\\b`, "i").test(message);
+  }
+
   let data: unknown = null;
   let error: { message: string } | null = null;
 
-  const withMetadata = await attemptWithMetadata();
-  data = withMetadata.data;
-  error = withMetadata.error ? { message: withMetadata.error.message } : null;
+  const withAbstractAndThumbnail = await attemptWithAbstractAndThumbnail();
+  data = withAbstractAndThumbnail.data;
+  error = withAbstractAndThumbnail.error ? { message: withAbstractAndThumbnail.error.message } : null;
 
-  if (error && /column/i.test(error.message) && /abstract|thumbnail_image_url/i.test(error.message)) {
-    const fallback = await attemptWithoutMetadata();
-    data = fallback.data;
-    error = fallback.error ? { message: fallback.error.message } : null;
+  if (error && isMissingColumnError(error.message, "abstract")) {
+    const withThumbnailOnly = await attemptWithThumbnailOnly();
+    data = withThumbnailOnly.data;
+    error = withThumbnailOnly.error ? { message: withThumbnailOnly.error.message } : null;
+  }
+
+  if (error && isMissingColumnError(error.message, "thumbnail_image_url")) {
+    const withoutMetadata = await attemptWithoutMetadata();
+    data = withoutMetadata.data;
+    error = withoutMetadata.error ? { message: withoutMetadata.error.message } : null;
   }
 
   if (error) {
@@ -222,4 +268,8 @@ export function getThumbnailUrl(
 
   const match = /<img\s+[^>]*src=["']([^"']+)["']/i.exec(body);
   return match?.[1] ?? null;
+}
+
+export function getCardThumbnailUrl(thumbnailImageUrl: string | null): string | null {
+  return typeof thumbnailImageUrl === "string" && thumbnailImageUrl.length > 0 ? thumbnailImageUrl : null;
 }
