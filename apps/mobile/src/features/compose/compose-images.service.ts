@@ -271,25 +271,28 @@ export async function uploadComposeImages(params: {
 }): Promise<UploadPostImagesResult> {
   const { postId, userId, images } = params;
 
+  const results = await Promise.all(
+    images.map((image, index) =>
+      uploadSingleImage({
+        postId,
+        userId,
+        image,
+        index
+      })
+    )
+  );
+
   const uploaded: UploadedPostImage[] = [];
   const failed: ImageUploadFailure[] = [];
 
-  for (let index = 0; index < images.length; index += 1) {
-    const result = await uploadSingleImage({
-      postId,
-      userId,
-      image: images[index],
-      index
-    });
-
+  results.forEach((result) => {
     if (result.uploaded) {
       uploaded.push(result.uploaded);
     }
-
     if (result.failed) {
       failed.push(result.failed);
     }
-  }
+  });
 
   return { uploaded, failed };
 }

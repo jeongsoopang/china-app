@@ -1182,41 +1182,16 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         selectedSection.sectionCode === "qa" ||
         (state.selectedCategorySlug?.startsWith("qa-") ?? false);
       const shouldAwardPostPoints = !isQaSection;
+      const canRunPointsAward = Boolean(postIdNumeric && shouldAwardPostPoints);
 
-      if (postIdNumeric && shouldAwardPostPoints) {
-        try {
-          console.log("[compose] award_post_points start", {
-            postId: postIdNumeric
-          });
-          const awardResult = await awardPostPoints(postIdNumeric);
-          console.log("[compose] award_post_points success", {
-            postId: postIdNumeric,
-            ...awardResult
-          });
-          if (awardResult.awarded) {
-            infoMessages.push(
-              `Points +${awardResult.awardedPoints} (${awardResult.tierAtAward ?? "bronze"} -> ${
-                awardResult.nextPointTier ?? awardResult.tierAtAward ?? "bronze"
-              }).`
-            );
-          } else if (awardResult.message) {
-            infoMessages.push(`Points: ${awardResult.message}`);
-          }
-        } catch (error) {
-          console.error("[compose] award_post_points error", {
-            postId: postIdNumeric,
-            error
-          });
-          infoMessages.push(`Post saved, but points award failed: ${mapCreatePostError(error)}`);
-        }
-      } else if (postIdNumeric && !shouldAwardPostPoints) {
+      if (postIdNumeric && !shouldAwardPostPoints) {
         console.log("[compose] points skipped for qa section", {
           postId: postIdNumeric,
           sectionCode: selectedSection.sectionCode,
           selectedSectionCode: state.selectedSectionCode,
           categorySlug: state.selectedCategorySlug
         });
-      } else {
+      } else if (!postIdNumeric) {
         const invalidPostIdMessage =
           "Post saved, but points award skipped because create_post returned an invalid post id.";
         console.error("[compose] points skipped: invalid post id from create_post", {
@@ -1224,6 +1199,8 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         });
         infoMessages.push(invalidPostIdMessage);
       }
+
+      const immediateInfoMessage = infoMessages.join(" ");
 
       setState((current) => ({
         ...current,
@@ -1243,9 +1220,53 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
             : postResult.postId
               ? `/posts/${postResult.postId}`
               : null,
-        infoMessage: infoMessages.join(" "),
+        infoMessage: immediateInfoMessage,
         errorMessage: null
       }));
+
+      if (canRunPointsAward && postIdNumeric) {
+        void (async () => {
+          try {
+            console.log("[compose] award_post_points start", {
+              postId: postIdNumeric
+            });
+            const awardResult = await awardPostPoints(postIdNumeric);
+            console.log("[compose] award_post_points success", {
+              postId: postIdNumeric,
+              ...awardResult
+            });
+
+            let pointsMessage: string | null = null;
+            if (awardResult.awarded) {
+              pointsMessage = `Points +${awardResult.awardedPoints} (${awardResult.tierAtAward ?? "bronze"} -> ${
+                awardResult.nextPointTier ?? awardResult.tierAtAward ?? "bronze"
+              }).`;
+            } else if (awardResult.message) {
+              pointsMessage = `Points: ${awardResult.message}`;
+            }
+
+            if (pointsMessage) {
+              setState((current) => {
+                if (current.createdPostId !== postResult.postId) {
+                  return current;
+                }
+
+                return {
+                  ...current,
+                  infoMessage: current.infoMessage
+                    ? `${current.infoMessage} ${pointsMessage}`
+                    : pointsMessage
+                };
+              });
+            }
+          } catch (error) {
+            console.error("[compose] award_post_points error", {
+              postId: postIdNumeric,
+              error
+            });
+          }
+        })();
+      }
     } catch (error) {
       setState((current) => ({
         ...current,
