@@ -1,12 +1,13 @@
 import type { DbUserTier } from "@foryou/types";
 import type { ReportReasonCode, ReportTargetType } from "@foryou/supabase";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getMobileCurrentUser } from "../auth/current-user";
 import { mapReportError, submitReport } from "../moderation/report.service";
 import {
   acceptBestAnswerViaRpc,
   createCommentViaRpc,
-  fetchThreadData,
+  fetchPostCommentsBundle,
+  fetchPostDetailCore,
   mapDiscussionError,
   parsePostRouteId,
   toggleCommentLike,
@@ -40,6 +41,7 @@ type DiscussionThreadState = {
   commentLikedByMe: Record<number, boolean>;
   likingPost: boolean;
   likingCommentId: number | null;
+  commentsLoading: boolean;
   reportTarget: ReportTarget | null;
   reportReasonCode: ReportReasonCode;
   reportReasonText: string;
@@ -61,6 +63,7 @@ const INITIAL_STATE: DiscussionThreadState = {
   commentLikedByMe: {},
   likingPost: false,
   likingCommentId: null,
+  commentsLoading: false,
   reportTarget: null,
   reportReasonCode: "spam",
   reportReasonText: "",
@@ -108,15 +111,20 @@ export function useDiscussionThread(params: {
 }) {
   const { mode, routeId, resolvedLanguage } = params;
   const [state, setState] = useState<DiscussionThreadState>(INITIAL_STATE);
+  const loadRequestIdRef = useRef(0);
 
   const resolvedPostId = useMemo(() => parsePostRouteId(routeId), [routeId]);
 
   const loadThread = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+
     if (!resolvedPostId) {
       setState((current) => ({
         ...current,
         action: "ready",
         postId: null,
+        commentsLoading: false,
         errorMessage: "Invalid post ID."
       }));
       return;
@@ -128,8 +136,12 @@ export function useDiscussionThread(params: {
       errorMessage: null,
       infoMessage: null,
       postId: resolvedPostId,
+      commentsLoading: true,
       ...(current.postId !== resolvedPostId
         ? {
+            post: null,
+            topLevelComments: [],
+            acceptedAnswerCommentId: null,
             postLikedByMe: null,
             commentLikedByMe: {},
             likingPost: false,
@@ -138,14 +150,50 @@ export function useDiscussionThread(params: {
         : {})
     }));
 
+    const currentUserPromise = getMobileCurrentUser().catch(() => null);
+    void currentUserPromise.then((currentUser) => {
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setState((current) => ({
+        ...current,
+        currentUserId: currentUser?.authUser.id ?? null,
+        currentUserTier: currentUser?.profile.tier ?? null
+      }));
+    });
+
     try {
-      const [threadData, currentUser] = await Promise.all([
-        fetchThreadData(resolvedPostId, mode, resolvedLanguage),
-        getMobileCurrentUser()
-      ]);
+      const coreData = await fetchPostDetailCore(resolvedPostId, resolvedLanguage);
+
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
 
       setState((current) => {
-        const validCommentIds = new Set(collectCommentIds(threadData.topLevelComments));
+        return {
+          ...current,
+          action: "ready",
+          postId: resolvedPostId,
+          post: coreData.post,
+          acceptedAnswerCommentId:
+            mode === "qa" ? coreData.post.accepted_answer_comment_id : null,
+          errorMessage: null
+        };
+      });
+
+      const commentsBundle = await fetchPostCommentsBundle({
+        postId: resolvedPostId,
+        mode,
+        acceptedAnswerCommentIdFromPost: coreData.post.accepted_answer_comment_id
+      });
+
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setState((current) => {
+        const validCommentIds = new Set(collectCommentIds(commentsBundle.topLevelComments));
         const nextCommentLikedByMe = Object.fromEntries(
           Object.entries(current.commentLikedByMe).filter(([commentId]) =>
             validCommentIds.has(Number(commentId))
@@ -156,20 +204,23 @@ export function useDiscussionThread(params: {
           ...current,
           action: "ready",
           postId: resolvedPostId,
-          post: threadData.post,
-          topLevelComments: threadData.topLevelComments,
-          acceptedAnswerCommentId: threadData.acceptedAnswerCommentId,
-          currentUserId: currentUser?.authUser.id ?? null,
-          currentUserTier: currentUser?.profile.tier ?? null,
+          topLevelComments: commentsBundle.topLevelComments,
+          acceptedAnswerCommentId: commentsBundle.acceptedAnswerCommentId,
           commentLikedByMe: nextCommentLikedByMe,
+          commentsLoading: false,
           errorMessage: null
         };
       });
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setState((current) => ({
         ...current,
         action: "ready",
         postId: resolvedPostId,
+        commentsLoading: false,
         errorMessage: mapDiscussionError(error)
       }));
     }
@@ -181,6 +232,7 @@ export function useDiscussionThread(params: {
 
   const isQa = mode === "qa";
   const isLoading = state.action === "loading";
+  const isCommentsLoading = state.commentsLoading;
   const isSubmittingComment = state.action === "submitting_comment";
   const isAcceptingAnswer = state.action === "accepting_answer";
   const isSubmittingReport = state.action === "submitting_report";
@@ -522,6 +574,7 @@ export function useDiscussionThread(params: {
     isQa,
     isSignedIn,
     isLoading,
+    isCommentsLoading,
     isSubmittingComment,
     isAcceptingAnswer,
     isSubmittingReport,

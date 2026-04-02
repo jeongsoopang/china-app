@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -124,6 +124,13 @@ function AuthenticatedPostDetailScreen(props: {
       ? (resolvedLanguage === "ko" ? "아직 번역되지 않음" : "Not translated yet")
       : null;
   const bodyBlocks = parsePostBody(displayBody);
+  const postImageUrls = useMemo(() => {
+    const fromBody = bodyBlocks
+      .filter((block): block is { type: "image"; url: string } => block.type === "image")
+      .map((block) => block.url);
+    const fromPostImages = thread.state.post?.images.map((image) => image.image_url) ?? [];
+    return Array.from(new Set([...fromBody, ...fromPostImages].filter((url) => url.length > 0)));
+  }, [bodyBlocks, thread.state.post?.images]);
   const [authorName, setAuthorName] = useState<string | null>(null);
   const [authorTier, setAuthorTier] = useState<string | null>(null);
   const [viewCountOverride, setViewCountOverride] = useState<number | null>(null);
@@ -260,6 +267,12 @@ function AuthenticatedPostDetailScreen(props: {
       cancelled = true;
     };
   }, [postId]);
+
+  useEffect(() => {
+    postImageUrls.forEach((url) => {
+      void Image.prefetch(url);
+    });
+  }, [postImageUrls]);
 
   function onGoBack() {
     if (resolvedBackTo) {
@@ -416,6 +429,10 @@ function AuthenticatedPostDetailScreen(props: {
         </Text>
       </View>
 
+      {thread.isCommentsLoading ? (
+        <Text style={styles.metaText}>Loading comments...</Text>
+      ) : null}
+
       <CommentTree
         mode="post"
         comments={thread.state.topLevelComments}
@@ -468,13 +485,23 @@ function AuthenticatedPostDetailScreen(props: {
           </Pressable>
 
           {selectedImageUrl ? (
-            <Pressable onPress={closeImageViewer} style={styles.imageViewerContent}>
+            <ScrollView
+              style={styles.imageViewerScroll}
+              contentContainerStyle={styles.imageViewerContent}
+              minimumZoomScale={1}
+              maximumZoomScale={4}
+              pinchGestureEnabled
+              bouncesZoom
+              centerContent
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+            >
               <Image
                 source={{ uri: selectedImageUrl }}
                 style={styles.imageViewerImage}
                 resizeMode="contain"
               />
-            </Pressable>
+            </ScrollView>
           ) : null}
         </View>
       </Modal>
@@ -638,6 +665,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.14)",
     alignItems: "center",
     justifyContent: "center"
+  },
+  imageViewerScroll: {
+    width: "100%",
+    height: "100%"
   },
   imageViewerContent: {
     width: "100%",

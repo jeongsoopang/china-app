@@ -6,7 +6,9 @@ import type {
   CreateCommentResult,
   DiscussionMode,
   ThreadComment,
+  ThreadCommentsBundle,
   ThreadData,
+  ThreadPostCoreData,
   ThreadPostImage,
   ThreadPost,
   ToggleLikeResult
@@ -125,6 +127,11 @@ function findAcceptedAnswerCommentId(
   return accepted?.id ?? null;
 }
 
+function findAcceptedAnswerCommentIdFromComments(topLevelComments: ThreadComment[]): number | null {
+  const accepted = topLevelComments.find((comment) => comment.is_best_answer);
+  return accepted?.id ?? null;
+}
+
 function parseCreateCommentResult(data: CreateCommentRpcReturn): CreateCommentResult {
   const getFromRecord = (record: Record<string, unknown>): CreateCommentResult => {
     return {
@@ -221,28 +228,13 @@ function parseToggleLikeResult(
   throw new Error("Like toggle returned invalid data.");
 }
 
-export async function fetchThreadData(
+export async function fetchPostDetailCore(
   postId: number,
-  mode: DiscussionMode,
   resolvedLanguage?: "ko" | "en"
-): Promise<ThreadData> {
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError || !authData.user) {
-    throw new Error("Sign in is required to view post details.");
-  }
-
-  const [
-    { data: postData, error: postError },
-    { data: commentsData, error: commentsError },
-    { data: imagesData, error: imagesError }
-  ] =
+): Promise<ThreadPostCoreData> {
+  const [{ data: postData, error: postError }, { data: imagesData, error: imagesError }] =
     await Promise.all([
       supabase.from("posts").select("*").eq("id", postId).maybeSingle(),
-      supabase
-        .from("comments")
-        .select("*")
-        .eq("post_id", postId)
-        .order("created_at", { ascending: true }),
       supabase
         .from("post_images")
         .select("*")
@@ -257,10 +249,6 @@ export async function fetchThreadData(
 
   if (!postData) {
     throw new Error("Post not found.");
-  }
-
-  if (commentsError) {
-    throw commentsError;
   }
 
   if (imagesError) {
@@ -296,12 +284,32 @@ export async function fetchThreadData(
     }
   }
 
-  const post: ThreadPost = {
-    ...toThreadPost(postData),
-    original_language: originalLanguage,
-    images: (imagesData ?? []).map(toThreadPostImage),
-    translation
+  return {
+    post: {
+      ...toThreadPost(postData),
+      original_language: originalLanguage,
+      images: (imagesData ?? []).map(toThreadPostImage),
+      translation
+    }
   };
+}
+
+export async function fetchPostCommentsBundle(params: {
+  postId: number;
+  mode: DiscussionMode;
+  acceptedAnswerCommentIdFromPost?: number | null;
+}): Promise<ThreadCommentsBundle> {
+  const { postId, mode, acceptedAnswerCommentIdFromPost } = params;
+  const { data: commentsData, error: commentsError } = await supabase
+    .from("comments")
+    .select("*")
+    .eq("post_id", postId)
+    .order("created_at", { ascending: true });
+
+  if (commentsError) {
+    throw commentsError;
+  }
+
   const commentRows = commentsData ?? [];
   const authorIds = Array.from(new Set(commentRows.map((comment) => comment.author_id)));
   const displayNames = new Map<string, string | null>();
@@ -323,12 +331,40 @@ export async function fetchThreadData(
 
   const topLevelComments = buildCommentTree(commentRows, displayNames);
   const acceptedAnswerCommentId =
-    mode === "qa" ? findAcceptedAnswerCommentId(post, topLevelComments) : null;
+    mode === "qa"
+      ? acceptedAnswerCommentIdFromPost ?? findAcceptedAnswerCommentIdFromComments(topLevelComments)
+      : null;
 
   return {
-    post,
     topLevelComments,
     acceptedAnswerCommentId
+  };
+}
+
+export async function fetchThreadData(
+  postId: number,
+  mode: DiscussionMode,
+  resolvedLanguage?: "ko" | "en"
+): Promise<ThreadData> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) {
+    throw new Error("Sign in is required to view post details.");
+  }
+
+  const core = await fetchPostDetailCore(postId, resolvedLanguage);
+  const commentsBundle = await fetchPostCommentsBundle({
+    postId,
+    mode,
+    acceptedAnswerCommentIdFromPost: core.post.accepted_answer_comment_id
+  });
+
+  return {
+    post: core.post,
+    topLevelComments: commentsBundle.topLevelComments,
+    acceptedAnswerCommentId:
+      mode === "qa"
+        ? findAcceptedAnswerCommentId(core.post, commentsBundle.topLevelComments)
+        : null
   };
 }
 

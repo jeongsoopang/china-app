@@ -49,6 +49,15 @@ export type ThreadData = {
   acceptedAnswerCommentId: number | null;
 };
 
+export type ThreadPostCoreData = {
+  post: ThreadPost;
+};
+
+export type ThreadCommentsBundle = {
+  topLevelComments: ThreadComment[];
+  acceptedAnswerCommentId: number | null;
+};
+
 export type CreateCommentInput = {
   postId: number;
   body: string;
