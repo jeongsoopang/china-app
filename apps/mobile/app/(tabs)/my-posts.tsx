@@ -17,9 +17,18 @@ import {
   uploadComposeImages
 } from "../../src/features/compose/compose-images.service";
 import {
+  getAccessTier,
+  getCategoryOptionsForSection,
+  getComposeSectionOptions,
+  getDefaultSection,
   updatePostMetadata
 } from "../../src/features/compose/compose.service";
-import type { SelectedComposeImage } from "../../src/features/compose/compose.types";
+import type {
+  CategoryOption,
+  ComposeSectionCode,
+  ComposeSectionOption,
+  SelectedComposeImage
+} from "../../src/features/compose/compose.types";
 import { supabase } from "../../src/lib/supabase/client";
 import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
@@ -30,6 +39,8 @@ type MyPost = {
   abstract: string | null;
   thumbnailImageUrl: string | null;
   thumbnailStoragePath: string | null;
+  sectionCode: ComposeSectionCode | null;
+  categorySlug: string | null;
   createdAt: string;
 };
 
@@ -38,6 +49,10 @@ type EditDraft = {
   title: string;
   blocks: EditBlock[];
   thumbnailBlockId: string | null;
+  selectedSectionCode: ComposeSectionCode | null;
+  selectedCategorySlug: string | null;
+  sectionOptions: ComposeSectionOption[];
+  categoryOptions: CategoryOption[];
 };
 
 type EditParagraphBlock = {
@@ -350,6 +365,28 @@ function formatDate(value: string): string {
   return date.toLocaleString();
 }
 
+function normalizeComposeSectionCode(value: string | null | undefined): ComposeSectionCode | null {
+  if (value === "life" || value === "study" || value === "qa" || value === "fun") {
+    return value;
+  }
+
+  return null;
+}
+
+function getSectionLabel(code: ComposeSectionCode): string {
+  if (code === "life") {
+    return "School";
+  }
+  if (code === "study") {
+    return "Study";
+  }
+  if (code === "qa") {
+    return "Q&A";
+  }
+
+  return "Shanghai";
+}
+
 export default function MyPostsScreen() {
   const auth = useAuthSession();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string | string[] }>();
@@ -365,6 +402,21 @@ export default function MyPostsScreen() {
   >({});
 
   const authUserId = auth.user?.authUser.id ?? null;
+  const authProfile = auth.user?.profile ?? null;
+  const accessTier = useMemo(() => {
+    if (!authProfile) {
+      return null;
+    }
+
+    return getAccessTier(authProfile);
+  }, [authProfile]);
+  const baseSectionOptions = useMemo<ComposeSectionOption[]>(() => {
+    if (!accessTier) {
+      return [];
+    }
+
+    return getComposeSectionOptions(accessTier);
+  }, [accessTier]);
   const resolvedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
   const safeReturnTo = resolvedReturnTo ?? "/me";
   const currentPageReturnTo = `/my-posts?returnTo=${encodeURIComponent(safeReturnTo)}`;
@@ -382,7 +434,9 @@ export default function MyPostsScreen() {
     const attemptWithMetadata = async () => {
       return supabase
         .from("posts")
-        .select("id, title, body, abstract, thumbnail_image_url, thumbnail_storage_path, created_at")
+        .select(
+          "id, title, body, abstract, thumbnail_image_url, thumbnail_storage_path, created_at, sections ( code ), categories ( slug )"
+        )
         .eq("author_id", authUserId)
         .order("created_at", { ascending: false });
     };
@@ -390,7 +444,7 @@ export default function MyPostsScreen() {
     const attemptWithoutMetadata = async () => {
       return supabase
         .from("posts")
-        .select("id, title, body, created_at")
+        .select("id, title, body, created_at, sections ( code ), categories ( slug )")
         .eq("author_id", authUserId)
         .order("created_at", { ascending: false });
     };
@@ -425,6 +479,8 @@ export default function MyPostsScreen() {
       abstract?: string | null;
       thumbnail_image_url?: string | null;
       thumbnail_storage_path?: string | null;
+      sections?: { code: string | null } | null;
+      categories?: { slug: string | null } | null;
       created_at: string;
     }>;
 
@@ -438,6 +494,8 @@ export default function MyPostsScreen() {
           typeof row.thumbnail_image_url === "string" ? row.thumbnail_image_url : null,
         thumbnailStoragePath:
           typeof row.thumbnail_storage_path === "string" ? row.thumbnail_storage_path : null,
+        sectionCode: normalizeComposeSectionCode(row.sections?.code ?? null),
+        categorySlug: typeof row.categories?.slug === "string" ? row.categories.slug : null,
         createdAt: row.created_at
       }))
     );
@@ -488,6 +546,8 @@ export default function MyPostsScreen() {
     return Boolean(
       editDraft &&
         editDraft.title.trim().length > 0 &&
+        editDraft.selectedSectionCode &&
+        editDraft.selectedCategorySlug &&
         hasEditableContent(editDraft.blocks) &&
         !isSavingEdit &&
         !isPickingImages
@@ -497,13 +557,91 @@ export default function MyPostsScreen() {
   const isEditingBusy = isSavingEdit || isPickingImages;
 
   function openEditDraft(post: MyPost) {
+    if (!authProfile || !accessTier) {
+      setErrorMessage("프로필 정보를 확인한 뒤 다시 시도해 주세요.");
+      return;
+    }
+
     const blocks = parseBodyToBlocks(post.body);
     const firstImage = blocks.find((block) => block.type === "image");
+    const defaultSectionCode = getDefaultSection(baseSectionOptions)?.code ?? null;
+    const selectedSectionCode = post.sectionCode ?? defaultSectionCode;
+
+    const sectionOptions = [...baseSectionOptions];
+    if (
+      selectedSectionCode &&
+      !sectionOptions.some((option) => option.code === selectedSectionCode)
+    ) {
+      sectionOptions.unshift({
+        code: selectedSectionCode,
+        label: `${getSectionLabel(selectedSectionCode)} (현재)`,
+        sectionCode: selectedSectionCode
+      });
+    }
+
+    const baseCategoryOptions = selectedSectionCode
+      ? getCategoryOptionsForSection(selectedSectionCode, accessTier, authProfile)
+      : [];
+    const categoryOptions = [...baseCategoryOptions];
+    if (
+      selectedSectionCode &&
+      post.categorySlug &&
+      !categoryOptions.some((option) => option.slug === post.categorySlug)
+    ) {
+      categoryOptions.unshift({
+        slug: post.categorySlug,
+        label: `${post.categorySlug} (현재)`,
+        sectionCode: selectedSectionCode
+      });
+    }
+
+    const selectedCategorySlug =
+      post.categorySlug && categoryOptions.some((option) => option.slug === post.categorySlug)
+        ? post.categorySlug
+        : categoryOptions[0]?.slug ?? null;
+
     setEditDraft({
       id: post.id,
       title: post.title,
       blocks,
-      thumbnailBlockId: firstImage?.id ?? null
+      thumbnailBlockId: firstImage?.id ?? null,
+      selectedSectionCode,
+      selectedCategorySlug,
+      sectionOptions,
+      categoryOptions
+    });
+  }
+
+  function selectEditSection(code: ComposeSectionCode) {
+    if (!authProfile || !accessTier) {
+      return;
+    }
+
+    setEditDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const categoryOptions = getCategoryOptionsForSection(code, accessTier, authProfile);
+      return {
+        ...current,
+        selectedSectionCode: code,
+        categoryOptions,
+        selectedCategorySlug: categoryOptions[0]?.slug ?? null
+      };
+    });
+  }
+
+  function selectEditCategory(slug: string) {
+    setEditDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        selectedCategorySlug: slug
+      };
     });
   }
 
@@ -652,6 +790,42 @@ export default function MyPostsScreen() {
       return;
     }
 
+    if (!editDraft.selectedSectionCode || !editDraft.selectedCategorySlug) {
+      setErrorMessage("섹션과 카테고리를 선택해 주세요.");
+      setIsSavingEdit(false);
+      return;
+    }
+
+    const { data: sectionRow, error: sectionError } = await supabase
+      .from("sections")
+      .select("id")
+      .eq("code", editDraft.selectedSectionCode)
+      .maybeSingle();
+
+    if (sectionError || !sectionRow?.id) {
+      setErrorMessage("섹션 정보를 확인할 수 없습니다.");
+      setIsSavingEdit(false);
+      return;
+    }
+
+    const resolvedSectionIdRaw = sectionRow.id;
+    const resolvedSectionId = String(sectionRow.id);
+
+    const { data: categoryRow, error: categoryError } = await supabase
+      .from("categories")
+      .select("id, section_id")
+      .eq("slug", editDraft.selectedCategorySlug)
+      .eq("section_id", resolvedSectionIdRaw)
+      .maybeSingle();
+
+    if (categoryError || !categoryRow?.id) {
+      setErrorMessage("카테고리 정보를 확인할 수 없습니다.");
+      setIsSavingEdit(false);
+      return;
+    }
+
+    const resolvedCategoryId = String(categoryRow.id);
+
     const { data: existingPostImages, error: existingPostImagesError } = await supabase
       .from("post_images")
       .select("id, image_url, storage_path, sort_order")
@@ -690,7 +864,9 @@ export default function MyPostsScreen() {
       .from("posts")
       .update({
         title: editDraft.title.trim(),
-        body: finalBody
+        body: finalBody,
+        section_id: resolvedSectionId,
+        category_id: resolvedCategoryId
       })
       .eq("id", editDraft.id)
       .eq("author_id", authUserId);
@@ -903,6 +1079,50 @@ export default function MyPostsScreen() {
                   placeholder="제목"
                   placeholderTextColor={colors.textMuted}
                 />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>섹션</Text>
+                <View style={styles.selectorRow}>
+                  {editDraft?.sectionOptions.map((option) => {
+                    const isSelected = editDraft.selectedSectionCode === option.code;
+                    return (
+                      <Pressable
+                        key={`edit-section-${option.code}`}
+                        style={[styles.selectorChip, isSelected ? styles.selectorChipSelected : null]}
+                        onPress={() => selectEditSection(option.code)}
+                      >
+                        <Text
+                          style={[styles.selectorChipLabel, isSelected ? styles.selectorChipLabelSelected : null]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>카테고리</Text>
+                <View style={styles.selectorRow}>
+                  {editDraft?.categoryOptions.map((option) => {
+                    const isSelected = editDraft.selectedCategorySlug === option.slug;
+                    return (
+                      <Pressable
+                        key={`edit-category-${option.slug}`}
+                        style={[styles.selectorChip, isSelected ? styles.selectorChipSelected : null]}
+                        onPress={() => selectEditCategory(option.slug)}
+                      >
+                        <Text
+                          style={[styles.selectorChipLabel, isSelected ? styles.selectorChipLabelSelected : null]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
 
               <View style={styles.fieldGroup}>
@@ -1168,6 +1388,31 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: "700",
     color: colors.textMuted
+  },
+  selectorRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
+  },
+  selectorChip: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingVertical: 6,
+    paddingHorizontal: 10
+  },
+  selectorChipSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent
+  },
+  selectorChipLabel: {
+    fontSize: typography.caption,
+    fontWeight: "600",
+    color: colors.textPrimary
+  },
+  selectorChipLabelSelected: {
+    color: "#f8fafc"
   },
   fieldInput: {
     borderWidth: 1,
