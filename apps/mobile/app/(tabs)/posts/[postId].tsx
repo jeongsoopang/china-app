@@ -1,7 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  InteractionManager,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CommentTree,
@@ -137,6 +146,8 @@ function AuthenticatedPostDetailScreen(props: {
   const incrementedPostIdRef = useRef<number | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [imageAspectRatios, setImageAspectRatios] = useState<Record<string, number>>({});
+  const [inlineImagesActivated, setInlineImagesActivated] = useState(false);
+  const [inlineImageLoadedByUrl, setInlineImageLoadedByUrl] = useState<Record<string, boolean>>({});
 
   function rememberImageAspectRatio(url: string, width?: number, height?: number) {
     if (!width || !height || width <= 0 || height <= 0) {
@@ -164,24 +175,58 @@ function AuthenticatedPostDetailScreen(props: {
     setSelectedImageUrl(null);
   }
 
+  function markInlineImageLoaded(url: string) {
+    setInlineImageLoadedByUrl((current) => {
+      if (current[url]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [url]: true
+      };
+    });
+  }
+
   function renderPostImage(url: string, key: string) {
     const ratio = imageAspectRatios[url];
+    const isLoaded = inlineImageLoadedByUrl[url] === true;
+    const shouldShowImage = inlineImagesActivated;
+    const containerStyle = [
+      styles.postImageContainer,
+      ratio ? { aspectRatio: ratio, height: undefined } : null
+    ];
 
     return (
       <Pressable key={key} onPress={() => openImageViewer(url)} style={styles.postImagePressable}>
-        <Image
-          source={{ uri: url }}
-          style={[styles.postImage, ratio ? { aspectRatio: ratio, height: undefined } : null]}
-          resizeMode="contain"
-          onLoad={(event) => {
-            const source = event.nativeEvent?.source;
-            rememberImageAspectRatio(
-              url,
-              typeof source?.width === "number" ? source.width : undefined,
-              typeof source?.height === "number" ? source.height : undefined
-            );
-          }}
-        />
+        <View style={containerStyle}>
+          {!isLoaded ? (
+            <View style={styles.postImagePlaceholder}>
+              <Text style={styles.postImagePlaceholderText}>Loading image...</Text>
+            </View>
+          ) : null}
+
+          {shouldShowImage ? (
+            <Image
+              source={{ uri: url }}
+              style={[
+                styles.postImage,
+                ratio ? { aspectRatio: ratio, height: undefined } : null,
+                !isLoaded ? styles.postImageHidden : null
+              ]}
+              resizeMode="contain"
+              onLoad={(event) => {
+                const source = event.nativeEvent?.source;
+                rememberImageAspectRatio(
+                  url,
+                  typeof source?.width === "number" ? source.width : undefined,
+                  typeof source?.height === "number" ? source.height : undefined
+                );
+                markInlineImageLoaded(url);
+              }}
+            />
+          ) : null}
+        </View>
       </Pressable>
     );
   }
@@ -269,10 +314,33 @@ function AuthenticatedPostDetailScreen(props: {
   }, [postId]);
 
   useEffect(() => {
+    setInlineImagesActivated(false);
+    setInlineImageLoadedByUrl({});
+
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setInlineImagesActivated(true);
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [postId]);
+
+  useEffect(() => {
+    if (!inlineImagesActivated) {
+      return;
+    }
+
     postImageUrls.forEach((url) => {
       void Image.prefetch(url);
     });
-  }, [postImageUrls]);
+  }, [inlineImagesActivated, postImageUrls]);
 
   function onGoBack() {
     if (resolvedBackTo) {
@@ -641,11 +709,38 @@ const styles = StyleSheet.create({
   postImagePressable: {
     width: "100%"
   },
+  postImageContainer: {
+    width: "100%",
+    minHeight: 220
+  },
   postImage: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     width: "100%",
     minHeight: 220,
     borderRadius: radius.sm,
     backgroundColor: colors.surfaceMuted
+  },
+  postImageHidden: {
+    opacity: 0
+  },
+  postImagePlaceholder: {
+    width: "100%",
+    minHeight: 220,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md
+  },
+  postImagePlaceholderText: {
+    fontSize: typography.caption,
+    color: colors.textMuted
   },
   imageViewerBackdrop: {
     flex: 1,
