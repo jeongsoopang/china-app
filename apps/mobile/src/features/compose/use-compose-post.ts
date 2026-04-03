@@ -1270,13 +1270,18 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
               return;
             }
 
-            await updatePostMetadata({
+            void updatePostMetadata({
               postId: postIdNumeric,
               thumbnailImageUrl: thumbnailUploadResult.uploaded.imageUrl,
               thumbnailStoragePath: thumbnailUploadResult.uploaded.storagePath
+            }).catch((error) => {
+              console.error("[compose] thumbnail metadata update error", {
+                postId: postIdNumeric,
+                error
+              });
             });
           } catch (error) {
-            console.error("[compose] thumbnail metadata update error", {
+            console.error("[compose] thumbnail upload error", {
               postId: postIdNumeric,
               error
             });
