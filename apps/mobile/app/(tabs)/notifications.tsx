@@ -1,9 +1,10 @@
 import { Link, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Image, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuthSession } from "../../src/features/auth/auth-session";
 import { CityHeroHeader } from "../../src/ui/city-hero-header";
 import {
+  fetchPublishedAnnouncements,
   fetchAnnouncementDetailById,
   mapNotificationsError,
   type AnnouncementDetail
@@ -53,24 +54,34 @@ function AuthenticatedNotificationsContent() {
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<AnnouncementDetail | null>(null);
   const [isLoadingAnnouncement, setIsLoadingAnnouncement] = useState(false);
   const [announcementError, setAnnouncementError] = useState<string | null>(null);
+  const [publishedAnnouncements, setPublishedAnnouncements] = useState<AnnouncementDetail[]>([]);
+  const [isLoadingPublishedAnnouncements, setIsLoadingPublishedAnnouncements] = useState(false);
+  const [publishedAnnouncementsError, setPublishedAnnouncementsError] = useState<string | null>(null);
 
-  const announcementTypes = useMemo(() => new Set(["announcement", "system"]), []);
-  const announcementItems = useMemo(
-    () =>
-      notifications.state.notifications.filter((notification) =>
-        announcementTypes.has(notification.type)
-      ),
-    [announcementTypes, notifications.state.notifications]
-  );
-  const personalItems = useMemo(
-    () =>
-      notifications.state.notifications.filter(
-        (notification) => !announcementTypes.has(notification.type)
-      ),
-    [announcementTypes, notifications.state.notifications]
-  );
-  const visibleItems = tab === "announcement" ? announcementItems : personalItems;
-  const visibleUnreadCount = visibleItems.filter((item) => !item.is_read).length;
+  const announcementItems = publishedAnnouncements;
+  const personalItems = useMemo(() => notifications.state.notifications, [notifications.state.notifications]);
+  const personalUnreadCount = personalItems.filter((item) => !item.is_read).length;
+
+  async function loadPublishedAnnouncements() {
+    setPublishedAnnouncementsError(null);
+    setIsLoadingPublishedAnnouncements(true);
+    try {
+      const items = await fetchPublishedAnnouncements();
+      setPublishedAnnouncements(items);
+    } catch (error) {
+      setPublishedAnnouncementsError(mapNotificationsError(error));
+    } finally {
+      setIsLoadingPublishedAnnouncements(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPublishedAnnouncements();
+  }, []);
+
+  async function handleRefresh() {
+    await Promise.all([notifications.refresh(), loadPublishedAnnouncements()]);
+  }
 
   async function handlePressNotification(notification: NotificationListItem) {
     const marked = await notifications.onPressNotification(notification);
@@ -106,7 +117,12 @@ function AuthenticatedNotificationsContent() {
     }
   }
 
-  if (notifications.isLoading && notifications.state.notifications.length === 0) {
+  if (
+    notifications.isLoading &&
+    notifications.state.notifications.length === 0 &&
+    isLoadingPublishedAnnouncements &&
+    announcementItems.length === 0
+  ) {
     return (
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={styles.container}>
@@ -160,72 +176,116 @@ function AuthenticatedNotificationsContent() {
           </View>
 
           <View style={styles.metaRow}>
-            <Text style={styles.metaText}>Unread: {visibleUnreadCount}</Text>
-            <Pressable
-              disabled={!notifications.canMarkAllAsRead}
-              onPress={notifications.onMarkAllAsRead}
-              style={[
-                styles.markAllButton,
-                !notifications.canMarkAllAsRead && styles.markAllButtonDisabled
-              ]}
-            >
-              <Text style={styles.markAllButtonLabel}>
-                {notifications.isMarkingAll ? "Marking..." : "Mark all as read"}
-              </Text>
-            </Pressable>
+            {tab === "notification" ? (
+              <>
+                <Text style={styles.metaText}>Unread: {personalUnreadCount}</Text>
+                <Pressable
+                  disabled={!notifications.canMarkAllAsRead}
+                  onPress={notifications.onMarkAllAsRead}
+                  style={[
+                    styles.markAllButton,
+                    !notifications.canMarkAllAsRead && styles.markAllButtonDisabled
+                  ]}
+                >
+                  <Text style={styles.markAllButtonLabel}>
+                    {notifications.isMarkingAll ? "Marking..." : "Mark all as read"}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <Text style={styles.metaText}>Published: {announcementItems.length}</Text>
+            )}
           </View>
 
           {announcementError ? <Text style={styles.errorText}>{announcementError}</Text> : null}
+          {publishedAnnouncementsError ? (
+            <Text style={styles.errorText}>{publishedAnnouncementsError}</Text>
+          ) : null}
 
-          {visibleItems.length === 0 ? (
+          {tab === "announcement" && isLoadingPublishedAnnouncements && announcementItems.length === 0 ? (
+            <Text style={styles.text}>Loading announcements...</Text>
+          ) : tab === "announcement" && announcementItems.length === 0 ? (
+            <Text style={styles.text}>No announcements yet.</Text>
+          ) : tab === "notification" && personalItems.length === 0 ? (
             <Text style={styles.text}>No notifications yet.</Text>
           ) : (
             <View style={styles.list}>
-              {visibleItems.map((notification) => {
-                const isPendingItem =
-                  notifications.isMarkingOne &&
-                  notifications.state.processingNotificationId === notification.id;
-
-                return (
-                  <Pressable
-                    key={notification.id}
-                    disabled={isPendingItem || notifications.isMarkingAll}
-                    onPress={() => void handlePressNotification(notification)}
-                    style={[
-                      styles.card,
-                      !notification.is_read && styles.unreadCard,
-                      (isPendingItem || notifications.isMarkingAll) && styles.cardDisabled
-                    ]}
-                  >
-                    <ImageBackground
-                      source={ANNOUNCEMENT_PAPER}
-                      resizeMode="cover"
-                      style={styles.cardPaper}
-                      imageStyle={styles.cardPaperImage}
+              {tab === "announcement"
+                ? announcementItems.map((announcement) => (
+                    <Pressable
+                      key={`announcement-${announcement.id}`}
+                      onPress={() => {
+                        setAnnouncementError(null);
+                        setSelectedAnnouncement(announcement);
+                      }}
+                      style={styles.card}
                     >
-                      <View
-                        style={[
-                          styles.cardContentOverlay,
-                          !notification.is_read && styles.cardContentOverlayUnread
-                        ]}
+                      <ImageBackground
+                        source={ANNOUNCEMENT_PAPER}
+                        resizeMode="cover"
+                        style={styles.cardPaper}
+                        imageStyle={styles.cardPaperImage}
                       >
-                        <View style={styles.cardHeader}>
-                          <Text style={styles.cardTitle}>{notification.title}</Text>
-                          <Text style={styles.statusText}>
-                            {isPendingItem ? "Marking..." : notification.is_read ? "Read" : "Unread"}
+                        <View style={styles.cardContentOverlay}>
+                          <View style={styles.cardHeader}>
+                            <Text style={styles.cardTitle}>{announcement.title}</Text>
+                            <Text style={styles.statusText}>Published</Text>
+                          </View>
+                          <Text style={styles.cardMessage}>
+                            {announcement.outline || announcement.body || ""}
+                          </Text>
+                          <Text style={styles.cardMeta}>
+                            {formatCreatedAt(announcement.published_at ?? announcement.created_at)}
                           </Text>
                         </View>
-                        <Text style={styles.cardMessage}>{notification.body}</Text>
-                        <Text style={styles.cardMeta}>{formatCreatedAt(notification.created_at)}</Text>
-                      </View>
-                    </ImageBackground>
-                  </Pressable>
-                );
-              })}
+                      </ImageBackground>
+                    </Pressable>
+                  ))
+                : personalItems.map((notification) => {
+                    const isPendingItem =
+                      notifications.isMarkingOne &&
+                      notifications.state.processingNotificationId === notification.id;
+
+                    return (
+                      <Pressable
+                        key={notification.id}
+                        disabled={isPendingItem || notifications.isMarkingAll}
+                        onPress={() => void handlePressNotification(notification)}
+                        style={[
+                          styles.card,
+                          !notification.is_read && styles.unreadCard,
+                          (isPendingItem || notifications.isMarkingAll) && styles.cardDisabled
+                        ]}
+                      >
+                        <ImageBackground
+                          source={ANNOUNCEMENT_PAPER}
+                          resizeMode="cover"
+                          style={styles.cardPaper}
+                          imageStyle={styles.cardPaperImage}
+                        >
+                          <View
+                            style={[
+                              styles.cardContentOverlay,
+                              !notification.is_read && styles.cardContentOverlayUnread
+                            ]}
+                          >
+                            <View style={styles.cardHeader}>
+                              <Text style={styles.cardTitle}>{notification.title}</Text>
+                              <Text style={styles.statusText}>
+                                {isPendingItem ? "Marking..." : notification.is_read ? "Read" : "Unread"}
+                              </Text>
+                            </View>
+                            <Text style={styles.cardMessage}>{notification.body}</Text>
+                            <Text style={styles.cardMeta}>{formatCreatedAt(notification.created_at)}</Text>
+                          </View>
+                        </ImageBackground>
+                      </Pressable>
+                    );
+                  })}
             </View>
           )}
 
-          <Pressable onPress={notifications.refresh} style={styles.refreshButton}>
+          <Pressable onPress={() => void handleRefresh()} style={styles.refreshButton}>
             <Text style={styles.refreshButtonLabel}>Refresh</Text>
           </Pressable>
 

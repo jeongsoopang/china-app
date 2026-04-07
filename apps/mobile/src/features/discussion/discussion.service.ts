@@ -555,11 +555,24 @@ export function mapDiscussionError(error: unknown): string {
     return "Bronze users can only comment on Q&A posts.";
   }
 
-  if (normalized.includes("bronze") && normalized.includes("cannot answer")) {
+  if (
+    normalized.includes("bronze users cannot answer q&a") ||
+    normalized.includes("bronze users cannot answer q&a questions") ||
+    (normalized.includes("bronze") && normalized.includes("cannot answer")) ||
+    (normalized.includes("bronze") &&
+      normalized.includes("top-level answers") &&
+      normalized.includes("q&a"))
+  ) {
     return "Bronze users cannot submit top-level answers on Q&A posts.";
   }
 
-  if (normalized.includes("bronze") && normalized.includes("5 comments") && normalized.includes("shanghai day")) {
+  if (
+    normalized.includes("bronze users can only create 5 comments per shanghai day") ||
+    normalized.includes("bronze users can submit up to 5 comments per shanghai day") ||
+    (normalized.includes("bronze") &&
+      normalized.includes("5 comments") &&
+      normalized.includes("shanghai day"))
+  ) {
     return "Bronze users can submit up to 5 comments per Shanghai day.";
   }
 

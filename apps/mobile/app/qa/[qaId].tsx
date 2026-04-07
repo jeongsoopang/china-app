@@ -5,10 +5,10 @@ import {
   CommentTree,
   DiscussionComposer,
   ReportComposer
-} from "../../../src/features/discussion/discussion.components";
-import { useDiscussionThread } from "../../../src/features/discussion/use-discussion-thread";
-import { useAuthSession } from "../../../src/features/auth/auth-session";
-import { colors, radius, spacing, typography } from "../../../src/ui/theme";
+} from "../../src/features/discussion/discussion.components";
+import { useDiscussionThread } from "../../src/features/discussion/use-discussion-thread";
+import { useAuthSession } from "../../src/features/auth/auth-session";
+import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
 export default function QaDetailScreen() {
   const auth = useAuthSession();

@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs, useGlobalSearchParams, useLocalSearchParams, useRouter } from "expo-router";
+import { Tabs, useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { colors, radius } from "../../src/ui/theme";
 
@@ -116,46 +116,6 @@ function MyPostsBackHeaderButton() {
         }
 
         router.replace("/me" as never);
-      }}
-      style={styles.backButton}
-    >
-      <Ionicons name="chevron-back" size={20} color="#111827" />
-      <Text style={styles.backButtonLabel}>Back</Text>
-    </Pressable>
-  );
-}
-
-function QaBackHeaderButton() {
-  const router = useRouter();
-  const params = useGlobalSearchParams<{
-    universityId?: string | string[];
-    returnTo?: string | string[];
-  }>();
-
-  const rawReturnTo = params.returnTo;
-  const returnTo = Array.isArray(rawReturnTo) ? rawReturnTo[0] : rawReturnTo;
-  const rawUniversityId = params.universityId;
-  const universityId = Array.isArray(rawUniversityId) ? rawUniversityId[0] : rawUniversityId;
-
-  return (
-    <Pressable
-      onPress={() => {
-        if (returnTo) {
-          router.replace(returnTo as never);
-          return;
-        }
-
-        if (universityId) {
-          router.replace(`/universities/${universityId}?section=qa` as never);
-          return;
-        }
-
-        if (router.canGoBack()) {
-          router.back();
-          return;
-        }
-
-        router.replace("/home/universities" as never);
       }}
       style={styles.backButton}
     >
@@ -374,16 +334,6 @@ export default function TabsLayout() {
           headerShown: false
         }}
       />
-
-      <Tabs.Screen
-        name="posts/[postId]"
-        options={{
-          href: null,
-          title: "Post",
-          headerShown: false
-        }}
-      />
-
       <Tabs.Screen
         name="universities/[universityId]/qa/[categorySlug]"
         options={{
@@ -401,16 +351,6 @@ export default function TabsLayout() {
           headerLeft: () => <DetailBackHeaderButton />
         }}
       />
-
-      <Tabs.Screen
-        name="qa/[qaId]"
-        options={{
-          href: null,
-          title: "Q&A",
-          headerLeft: () => <QaBackHeaderButton />
-        }}
-      />
-
       <Tabs.Screen
         name="my-posts"
         options={{

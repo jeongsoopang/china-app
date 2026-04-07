@@ -88,10 +88,10 @@ const QUICK_ACTIONS: Array<{
   { key: "my-posts", icon: "document-text-outline" }
 ];
 
-const HOME_POPUP_HIDE_UNTIL_STORAGE_KEY = "@lucl/home_announcement_hide_until_v1";
+const HOME_POPUP_HIDE_UNTIL_STORAGE_KEY_BASE = "@lucl/home_announcement_hide_until_v1";
 const HOME_POPUP_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY = "@lucl/home_guide_hide_until_v1";
-const HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY = "@lucl/home_guide_dismissed_forever_v1";
+const HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY_BASE = "@lucl/home_guide_hide_until_v1";
+const HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY_BASE = "@lucl/home_guide_dismissed_forever_v1";
 const HOME_GUIDE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const HOME_GUIDE_IMAGE_URL =
   "https://pdlgnrutisyenrcdetxm.supabase.co/storage/v1/object/public/home-guide/home-guide.png";
@@ -101,8 +101,24 @@ function getAnnouncementVersionKey(announcement: AnnouncementDetail): string {
   return `${announcement.id}:${version}`;
 }
 
-async function readHomePopupHideUntilMap(): Promise<Record<string, number>> {
-  const raw = await AsyncStorage.getItem(HOME_POPUP_HIDE_UNTIL_STORAGE_KEY);
+function buildScopedStorageKey(baseKey: string, userScope: string): string {
+  return `${baseKey}:${userScope}`;
+}
+
+function getHomePopupHideUntilStorageKey(userScope: string): string {
+  return buildScopedStorageKey(HOME_POPUP_HIDE_UNTIL_STORAGE_KEY_BASE, userScope);
+}
+
+function getHomeGuideHideUntilStorageKey(userScope: string): string {
+  return buildScopedStorageKey(HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY_BASE, userScope);
+}
+
+function getHomeGuideDismissedForeverStorageKey(userScope: string): string {
+  return buildScopedStorageKey(HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY_BASE, userScope);
+}
+
+async function readHomePopupHideUntilMap(userScope: string): Promise<Record<string, number>> {
+  const raw = await AsyncStorage.getItem(getHomePopupHideUntilStorageKey(userScope));
   if (!raw) {
     return {};
   }
@@ -121,8 +137,8 @@ async function readHomePopupHideUntilMap(): Promise<Record<string, number>> {
   }
 }
 
-async function readHomeGuideHideUntil(): Promise<number> {
-  const raw = await AsyncStorage.getItem(HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY);
+async function readHomeGuideHideUntil(userScope: string): Promise<number> {
+  const raw = await AsyncStorage.getItem(getHomeGuideHideUntilStorageKey(userScope));
   if (!raw) {
     return 0;
   }
@@ -135,8 +151,8 @@ async function readHomeGuideHideUntil(): Promise<number> {
   return parsed;
 }
 
-async function readHomeGuideDismissedForever(): Promise<boolean> {
-  const raw = await AsyncStorage.getItem(HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY);
+async function readHomeGuideDismissedForever(userScope: string): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(getHomeGuideDismissedForeverStorageKey(userScope));
   return raw === "true";
 }
 
@@ -167,6 +183,7 @@ export default function HomeScreen() {
   const snapStep = cardWidth + cardGap;
   const sidePadding = Math.max((width - cardWidth) / 2, spacing.lg);
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
+  const userScope = auth.user?.authUser.id ?? "guest";
   const hasVerifiedSchool = Boolean(verifiedUniversityId);
   const isKo = resolvedLanguage === "ko";
 
@@ -220,13 +237,16 @@ export default function HomeScreen() {
     let cancelled = false;
 
     async function loadHomeEntryData() {
+      setIsHomeEntryDataReady(false);
+      setIsGuideDismissedForSession(false);
+      setSessionDismissedAnnouncementKey(null);
       try {
         const [content, latestHomePopup, hideMap, guideHideUntil, guideDismissedForever] = await Promise.all([
           fetchHomeGuideContent(),
           fetchLatestHomePopupAnnouncement(),
-          readHomePopupHideUntilMap(),
-          readHomeGuideHideUntil(),
-          readHomeGuideDismissedForever()
+          readHomePopupHideUntilMap(userScope),
+          readHomeGuideHideUntil(userScope),
+          readHomeGuideDismissedForever(userScope)
         ]);
 
         if (!cancelled) {
@@ -254,7 +274,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userScope]);
 
   useEffect(() => {
     if (!isHomeEntryDataReady) {
@@ -335,7 +355,7 @@ export default function HomeScreen() {
     setHomePopupHideUntilMap(nextMap);
     setSessionDismissedAnnouncementKey(key);
     setIsAnnouncementModalVisible(false);
-    await AsyncStorage.setItem(HOME_POPUP_HIDE_UNTIL_STORAGE_KEY, JSON.stringify(nextMap));
+    await AsyncStorage.setItem(getHomePopupHideUntilStorageKey(userScope), JSON.stringify(nextMap));
   }
 
   function closeAnnouncementForSession() {
@@ -354,13 +374,13 @@ export default function HomeScreen() {
     const hideUntil = Date.now() + HOME_GUIDE_WEEK_MS;
     setHomeGuideHideUntil(hideUntil);
     setIsGuideModalVisible(false);
-    await AsyncStorage.setItem(HOME_GUIDE_HIDE_UNTIL_STORAGE_KEY, String(hideUntil));
+    await AsyncStorage.setItem(getHomeGuideHideUntilStorageKey(userScope), String(hideUntil));
   }
 
   async function dismissGuideForever() {
     setIsHomeGuideDismissedForever(true);
     setIsGuideModalVisible(false);
-    await AsyncStorage.setItem(HOME_GUIDE_DISMISSED_FOREVER_STORAGE_KEY, "true");
+    await AsyncStorage.setItem(getHomeGuideDismissedForeverStorageKey(userScope), "true");
   }
 
   async function handleQuickActionPress(actionKey: QuickActionKey) {

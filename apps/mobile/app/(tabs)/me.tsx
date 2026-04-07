@@ -7,6 +7,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Image,
   Linking,
   Modal,
@@ -77,6 +78,8 @@ const PROFILE_CROP_MIN_ZOOM = 1;
 const PROFILE_CROP_MAX_ZOOM = 3.5;
 const AVATAR_UPLOAD_MAX_LONG_EDGE = 1080;
 const BACKGROUND_UPLOAD_MAX_LONG_EDGE = 1600;
+const SETTINGS_SHEET_MAX_HEIGHT = Math.round(Dimensions.get("window").height * 0.62);
+const SETTINGS_SCROLL_MAX_HEIGHT = Math.round(Dimensions.get("window").height * 0.36);
 type CropTarget = "avatar" | "background";
 
 type CropFramePreset = {
@@ -1626,270 +1629,284 @@ export default function MeScreen() {
       </ScrollView>
 
       <Modal visible={isSettingsOpen} transparent animationType="fade" onRequestClose={() => setIsSettingsOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setIsSettingsOpen(false)}>
+        <Pressable style={styles.settingsModalBackdrop} onPress={() => setIsSettingsOpen(false)}>
           <Pressable style={styles.settingsSheet} onPress={() => {}}>
-            <Text style={styles.settingsSheetTitle}>{isKo ? "설정" : "Settings"}</Text>
-
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                setPendingSettingsModal("myInfo");
-                setIsSettingsOpen(false);
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="person-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "내 정보" : "My Info"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo
-                    ? "프로필 및 학교 인증 정보를 확인합니다."
-                    : "Check your profile and school verification info."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
-
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                setPendingSettingsModal("profile");
-                setIsSettingsOpen(false);
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="create-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "프로필 설정" : "Profile Settings"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "사용자명을 변경할 수 있습니다." : "You can change your user name."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
-
-            <View style={styles.settingsRow}>
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="notifications-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "알림" : "Notifications"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo
-                    ? "알림을 놓치지 않도록 알림을 허용하세요"
-                    : "Allow notifications so you don't miss updates."}
-                </Text>
-              </View>
-              <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} />
+            <View style={styles.settingsSheetHeader}>
+              <Text style={styles.settingsSheetTitle}>{isKo ? "설정" : "Settings"}</Text>
+              <Pressable
+                style={styles.settingsCloseButton}
+                onPress={() => setIsSettingsOpen(false)}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={18} color={colors.textPrimary} />
+              </Pressable>
             </View>
 
-            <View style={styles.settingsRow}>
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="language-outline" size={18} color={colors.textPrimary} />
+            <ScrollView
+              style={styles.settingsScrollArea}
+              contentContainerStyle={styles.settingsScrollContent}
+              showsVerticalScrollIndicator
+            >
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  setPendingSettingsModal("myInfo");
+                  setIsSettingsOpen(false);
+                }}
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="person-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "내 정보" : "My Info"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo
+                      ? "프로필 및 학교 인증 정보를 확인합니다."
+                      : "Check your profile and school verification info."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  setPendingSettingsModal("profile");
+                  setIsSettingsOpen(false);
+                }}
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="create-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "프로필 설정" : "Profile Settings"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "사용자명을 변경할 수 있습니다." : "You can change your user name."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+
+              <View style={styles.settingsRow}>
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="notifications-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "알림" : "Notifications"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo
+                      ? "알림을 놓치지 않도록 알림을 허용하세요"
+                      : "Allow notifications so you don't miss updates."}
+                  </Text>
+                </View>
+                <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} />
               </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>Language</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "앱 표시 언어를 선택합니다." : "Choose app display language."}
-                </Text>
-                <View style={styles.languageOptionRow}>
-                  <Pressable
-                    onPress={() => void setLanguageMode("system")}
-                    style={[
-                      styles.languageOptionChip,
-                      languageMode === "system" && styles.languageOptionChipSelected
-                    ]}
-                  >
-                    <Text
+
+              <View style={styles.settingsRow}>
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="language-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>Language</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "앱 표시 언어를 선택합니다." : "Choose app display language."}
+                  </Text>
+                  <View style={styles.languageOptionRow}>
+                    <Pressable
+                      onPress={() => void setLanguageMode("system")}
                       style={[
-                        styles.languageOptionChipLabel,
-                        languageMode === "system" && styles.languageOptionChipLabelSelected
+                        styles.languageOptionChip,
+                        languageMode === "system" && styles.languageOptionChipSelected
                       ]}
                     >
-                      System
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => void setLanguageMode("ko")}
-                    style={[
-                      styles.languageOptionChip,
-                      languageMode === "ko" && styles.languageOptionChipSelected
-                    ]}
-                  >
-                    <Text
+                      <Text
+                        style={[
+                          styles.languageOptionChipLabel,
+                          languageMode === "system" && styles.languageOptionChipLabelSelected
+                        ]}
+                      >
+                        System
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => void setLanguageMode("ko")}
                       style={[
-                        styles.languageOptionChipLabel,
-                        languageMode === "ko" && styles.languageOptionChipLabelSelected
+                        styles.languageOptionChip,
+                        languageMode === "ko" && styles.languageOptionChipSelected
                       ]}
                     >
-                      한국어
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => void setLanguageMode("en")}
-                    style={[
-                      styles.languageOptionChip,
-                      languageMode === "en" && styles.languageOptionChipSelected
-                    ]}
-                  >
-                    <Text
+                      <Text
+                        style={[
+                          styles.languageOptionChipLabel,
+                          languageMode === "ko" && styles.languageOptionChipLabelSelected
+                        ]}
+                      >
+                        한국어
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => void setLanguageMode("en")}
                       style={[
-                        styles.languageOptionChipLabel,
-                        languageMode === "en" && styles.languageOptionChipLabelSelected
+                        styles.languageOptionChip,
+                        languageMode === "en" && styles.languageOptionChipSelected
                       ]}
                     >
-                      English
-                    </Text>
-                  </Pressable>
+                      <Text
+                        style={[
+                          styles.languageOptionChipLabel,
+                          languageMode === "en" && styles.languageOptionChipLabelSelected
+                        ]}
+                      >
+                        English
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
-            </View>
 
-            <View style={styles.settingsRow}>
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="lock-closed-outline" size={18} color={colors.textPrimary} />
+              <View style={styles.settingsRow}>
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="lock-closed-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "비공개 프로필" : "Private Profile"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo
+                      ? "비공개 시 팔로워만 내 프로필을 볼 수 있습니다."
+                      : "When private, only followers can view your profile."}
+                  </Text>
+                </View>
+                <Switch
+                  value={isPrivateProfile}
+                  onValueChange={(value) => {
+                    void saveProfilePrivacy(value);
+                  }}
+                  disabled={isSavingPrivacy}
+                />
               </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "비공개 프로필" : "Private Profile"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo
-                    ? "비공개 시 팔로워만 내 프로필을 볼 수 있습니다."
-                    : "When private, only followers can view your profile."}
-                </Text>
-              </View>
-              <Switch
-                value={isPrivateProfile}
-                onValueChange={(value) => {
-                  void saveProfilePrivacy(value);
+              <Pressable style={styles.settingsRow} onPress={openFeedbackEmail}>
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="mail-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "문의하기" : "Contact Us"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "버그 신고 및 기능 요청" : "Report bugs or request features"}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  void openPublicPage(PUBLIC_WEB_LINKS.privacy);
                 }}
-                disabled={isSavingPrivacy}
-              />
-            </View>
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="shield-checkmark-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "개인정보처리방침" : "Privacy Policy"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "웹에서 정책을 확인합니다." : "View the policy on the web."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
 
-            <Pressable style={styles.settingsRow} onPress={openFeedbackEmail}>
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="mail-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "문의하기" : "Contact Us"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "버그 신고 및 기능 요청" : "Report bugs or request features"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  void openPublicPage(PUBLIC_WEB_LINKS.terms);
+                }}
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="document-text-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "이용약관" : "Terms of Service"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "서비스 이용약관을 확인합니다." : "Read the service terms."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
 
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                void openPublicPage(PUBLIC_WEB_LINKS.privacy);
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="shield-checkmark-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "개인정보처리방침" : "Privacy Policy"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "웹에서 정책을 확인합니다." : "View the policy on the web."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  void openPublicPage(PUBLIC_WEB_LINKS.support);
+                }}
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="help-circle-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "고객지원" : "Support"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "고객지원 및 문의 페이지를 엽니다." : "Open the support and contact page."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
 
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                void openPublicPage(PUBLIC_WEB_LINKS.terms);
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="document-text-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "이용약관" : "Terms of Service"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "서비스 이용약관을 확인합니다." : "Read the service terms."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  void openPublicPage(PUBLIC_WEB_LINKS.deleteAccount);
+                }}
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="trash-outline" size={18} color={colors.textPrimary} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsRowTitle}>{isKo ? "계정 삭제 요청" : "Delete Account Request"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo ? "계정 삭제 요청 안내 페이지를 엽니다." : "Open the account deletion request page."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
 
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                void openPublicPage(PUBLIC_WEB_LINKS.support);
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="help-circle-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "고객지원" : "Support"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "고객지원 및 문의 페이지를 엽니다." : "Open the support and contact page."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
-
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                void openPublicPage(PUBLIC_WEB_LINKS.deleteAccount);
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="trash-outline" size={18} color={colors.textPrimary} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsRowTitle}>{isKo ? "계정 삭제 요청" : "Delete Account Request"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo ? "계정 삭제 요청 안내 페이지를 엽니다." : "Open the account deletion request page."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
-
-            <Pressable
-              style={styles.settingsRow}
-              onPress={() => {
-                Alert.alert(
-                  isKo ? "계정 삭제 확인" : "Confirm Account Deletion",
-                  isKo
-                    ? "계정을 삭제하면 복구할 수 없습니다. 정말 삭제하시겠습니까?"
-                    : "Deleted accounts cannot be recovered. Do you want to continue?",
-                  [
-                    {
-                      text: isKo ? "취소" : "Cancel",
-                      style: "cancel"
-                    },
-                    {
-                      text: isKo ? "삭제하기" : "Delete",
-                      style: "destructive",
-                      onPress: () => {
-                        void confirmDeleteAccount();
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() => {
+                  Alert.alert(
+                    isKo ? "계정 삭제 확인" : "Confirm Account Deletion",
+                    isKo
+                      ? "계정을 삭제하면 복구할 수 없습니다. 정말 삭제하시겠습니까?"
+                      : "Deleted accounts cannot be recovered. Do you want to continue?",
+                    [
+                      {
+                        text: isKo ? "취소" : "Cancel",
+                        style: "cancel"
+                      },
+                      {
+                        text: isKo ? "삭제하기" : "Delete",
+                        style: "destructive",
+                        onPress: () => {
+                          void confirmDeleteAccount();
+                        }
                       }
-                    }
-                  ]
-                );
-              }}
-            >
-              <View style={styles.settingsIconWrap}>
-                <Ionicons name="warning-outline" size={18} color={colors.error} />
-              </View>
-              <View style={styles.settingsRowTextBlock}>
-                <Text style={styles.settingsDangerRowTitle}>{isKo ? "계정 삭제하기" : "Delete Account"}</Text>
-                <Text style={styles.settingsRowSubtitle}>
-                  {isKo
-                    ? "계정을 복구할 수 없도록 삭제합니다."
-                    : "Delete your account permanently and irreversibly."}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
+                    ]
+                  );
+                }}
+              >
+                <View style={styles.settingsIconWrap}>
+                  <Ionicons name="warning-outline" size={18} color={colors.error} />
+                </View>
+                <View style={styles.settingsRowTextBlock}>
+                  <Text style={styles.settingsDangerRowTitle}>{isKo ? "계정 삭제하기" : "Delete Account"}</Text>
+                  <Text style={styles.settingsRowSubtitle}>
+                    {isKo
+                      ? "계정을 복구할 수 없도록 삭제합니다."
+                      : "Delete your account permanently and irreversibly."}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -2595,13 +2612,41 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: spacing.lg
   },
+  settingsModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.56)",
+    justifyContent: "center",
+    padding: spacing.lg
+  },
   settingsSheet: {
     borderRadius: radius.lg,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    gap: spacing.sm
+    gap: spacing.sm,
+    maxHeight: SETTINGS_SHEET_MAX_HEIGHT
+  },
+  settingsSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  settingsCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  settingsScrollArea: {
+    maxHeight: SETTINGS_SCROLL_MAX_HEIGHT
+  },
+  settingsScrollContent: {
+    paddingBottom: spacing.xs
   },
   myInfoCard: {
     borderRadius: radius.md,

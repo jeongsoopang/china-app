@@ -151,6 +151,28 @@ export async function fetchNotifications(limit = 50): Promise<NotificationListIt
   return rows.map(mapNotificationRow);
 }
 
+export async function fetchPublishedAnnouncements(limit = 50): Promise<AnnouncementDetail[]> {
+  const announcementsClient = (supabase as unknown as {
+    from: (table: string) => any;
+  }).from("announcements");
+
+  const { data, error } = await announcementsClient
+    .select(
+      "id, title, outline, body, image_urls, is_home_popup, published_at, created_at, updated_at, is_published"
+    )
+    .eq("is_published", true)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data ?? []) as unknown as RawAnnouncementRow[];
+  return rows.map(mapAnnouncementRow);
+}
+
 export async function fetchAnnouncementDetailById(
   announcementId: string
 ): Promise<AnnouncementDetail> {

@@ -244,6 +244,8 @@ export default function SignUpScreen() {
         </Text>
       </Pressable>
 
+      {infoMessage ? <Text style={styles.errorText}>{infoMessage}</Text> : null}
+
       {codeRequested ? (
         <>
           <View style={styles.fieldGroup}>
@@ -286,6 +288,8 @@ export default function SignUpScreen() {
               <Text style={styles.secondaryButtonLabel}>{isKo ? "재전송" : "Resend"}</Text>
             </Pressable>
           </View>
+
+          {successMessage ? <Text style={styles.errorText}>{successMessage}</Text> : null}
         </>
       ) : null}
 
@@ -312,17 +316,6 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
-      {infoMessage ? (
-        <Text
-          style={[
-            styles.infoText,
-            infoMessage === "이미 인증 완료된 이메일입니다." ? styles.infoErrorText : null
-          ]}
-        >
-          {infoMessage}
-        </Text>
-      ) : null}
       {localError ? <Text style={styles.errorText}>{localError}</Text> : null}
       {!localError && auth.errorMessage ? <Text style={styles.errorText}>{auth.errorMessage}</Text> : null}
 
@@ -394,10 +387,6 @@ const styles = StyleSheet.create({
   secondaryButtonLabel: {
     color: "#0f172a",
     fontWeight: "600"
-  },
-  successText: {
-    fontSize: 14,
-    color: "#166534"
   },
   infoText: {
     fontSize: 14,

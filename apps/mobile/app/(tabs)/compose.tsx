@@ -30,8 +30,8 @@ const SECTION_LABELS: Record<string, ComposeLanguageValue> = {
 
 const CATEGORY_LABELS: Record<string, ComposeLanguageValue> = {
   "life-facilities": { ko: "학교시설", en: "Facilities" },
-  "life-food": { ko: "식당", en: "Dining" },
-  "life-dorm": { ko: "기숙사", en: "Dormitory" },
+  "life-food": { ko: "Food", en: "Food" },
+  "life-dorm": { ko: "Rent", en: "Rent" },
   "life-notice": { ko: "공지", en: "Notices" },
   "life-opportunity": { ko: "기회의 장", en: "Opportunities" },
   "life-info-sharing": { ko: "정보 공유", en: "Info Sharing" },
@@ -101,6 +101,10 @@ const RUNTIME_MESSAGE_MAP: Record<string, ComposeLanguageValue> = {
   "Select a university or switch to Shanghai.": {
     ko: "학교를 선택하거나 상하이 섹션으로 전환해주세요.",
     en: "Select a university or switch to Shanghai."
+  },
+  "Select a campus for this School post.": {
+    ko: "School 게시글의 캠퍼스를 선택해주세요.",
+    en: "Select a campus for this School post."
   },
   "University selection is required for Bronze Q&A posts.": {
     ko: "브론즈 Q&A 게시글은 학교 선택이 필요합니다.",
@@ -190,6 +194,7 @@ export default function ComposeScreen() {
     selectCategory,
     selectDegree,
     selectUniversity,
+    selectCampus,
     updateParagraphText,
     addParagraphAfter,
     insertImageAfter,
@@ -582,6 +587,30 @@ export default function ComposeScreen() {
           </Text>
         ) : null}
       </View>
+
+      {state.selectedSectionCode === "life" && state.campusOptions.length > 0 ? (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>{isKo ? "캠퍼스" : "Campus"}</Text>
+          <View style={styles.optionWrap}>
+            {state.campusOptions.map((campus) => {
+              const selected = state.selectedCampusSlug === campus.slug;
+
+              return (
+                <Pressable
+                  key={campus.slug}
+                  disabled={isLoading}
+                  onPress={() => selectCampus(campus.slug)}
+                  style={[styles.optionChip, selected && styles.optionChipSelected]}
+                >
+                  <Text style={[styles.optionChipLabel, selected && styles.optionChipLabelSelected]}>
+                    {campus.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>{isKo ? "제목" : "Title"}</Text>

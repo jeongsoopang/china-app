@@ -15,8 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   fetchShanghaiPosts,
   formatDate,
+  getCardThumbnailUrl,
   getPreviewText,
-  getThumbnailUrl,
   rankShanghaiPosts,
   type ShanghaiPost
 } from "../../../src/features/home/shanghai-posts";
@@ -117,7 +117,7 @@ export default function ShanghaiExploreScreen() {
     try {
       const posts = await fetchShanghaiPosts({
         categorySlugs: selectedCategory.categorySlugs,
-        limit: 140
+        limit: 24
       });
       setRankedPosts(
         selectedCategory.key === "church"
@@ -138,6 +138,15 @@ export default function ShanghaiExploreScreen() {
       void loadRankedPosts();
     }, [loadRankedPosts])
   );
+
+  useEffect(() => {
+    rankedPosts.slice(0, 3).forEach((post) => {
+      const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
+      if (thumbnailUrl) {
+        void Image.prefetch(thumbnailUrl);
+      }
+    });
+  }, [rankedPosts]);
 
   return (
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -228,7 +237,7 @@ export default function ShanghaiExploreScreen() {
 
         <View style={styles.top3List}>
           {rankedPosts.map((post, index) => {
-            const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+            const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
             const preview = getPreviewText(post.abstract, post.body);
             return (
               <Link

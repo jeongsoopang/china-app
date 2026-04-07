@@ -16,14 +16,14 @@ import {
   CommentTree,
   DiscussionComposer,
   ReportComposer
-} from "../../../src/features/discussion/discussion.components";
-import { incrementPostViewCount } from "../../../src/features/discussion/discussion.service";
-import { useDiscussionThread } from "../../../src/features/discussion/use-discussion-thread";
-import { useAuthSession } from "../../../src/features/auth/auth-session";
-import { useAppLanguage } from "../../../src/features/language/app-language";
-import { supabase } from "../../../src/lib/supabase/client";
-import { TierMarker, resolveTierMarkerValue } from "../../../src/ui/tier-marker";
-import { colors, radius, spacing, typography } from "../../../src/ui/theme";
+} from "../../src/features/discussion/discussion.components";
+import { incrementPostViewCount } from "../../src/features/discussion/discussion.service";
+import { useDiscussionThread } from "../../src/features/discussion/use-discussion-thread";
+import { useAuthSession } from "../../src/features/auth/auth-session";
+import { useAppLanguage } from "../../src/features/language/app-language";
+import { supabase } from "../../src/lib/supabase/client";
+import { TierMarker, resolveTierMarkerValue } from "../../src/ui/tier-marker";
+import { colors, radius, spacing, typography } from "../../src/ui/theme";
 
 function isSpecialRole(value: string | null | undefined): boolean {
   return value === "campus_master" || value === "church_master" || value === "grandmaster";

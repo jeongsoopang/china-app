@@ -22,6 +22,11 @@ export type UniversityOption = {
   shortName: string;
 };
 
+export type CampusOption = {
+  slug: string;
+  label: string;
+};
+
 export type VerifiedUniversity = {
   id: string;
   slug: string | null;
@@ -42,6 +47,7 @@ export type CreatePostInput = {
   title: string;
   body: string;
   universitySlug: string | null;
+  campusSlug?: string | null;
   locationText: string | null;
   tags: string[];
   degree?: StudyDegree | null;

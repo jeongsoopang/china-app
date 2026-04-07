@@ -471,6 +471,7 @@ export type Database = {
           abstract: string | null;
           author_id: string;
           body: string;
+          campus_slug: string | null;
           category_id: string | null;
           comment_count: number;
           created_at: string;
@@ -496,6 +497,7 @@ export type Database = {
           abstract?: string | null;
           author_id: string;
           body: string;
+          campus_slug?: string | null;
           category_id?: string | null;
           comment_count?: number;
           created_at?: string;
@@ -521,6 +523,7 @@ export type Database = {
           abstract?: string | null;
           author_id?: string;
           body?: string;
+          campus_slug?: string | null;
           category_id?: string | null;
           comment_count?: number;
           created_at?: string;
@@ -964,6 +967,7 @@ export type Database = {
       create_post: {
         Args: {
           p_body: string;
+          p_campus_slug?: string | null;
           p_category_slug: string;
           p_location_text?: string | null;
           p_section_code: string;

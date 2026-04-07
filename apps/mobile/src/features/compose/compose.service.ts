@@ -2,6 +2,7 @@ import type { Database, DbUserRole, DbUserTier, UserProfileRow } from "@foryou/t
 import { supabase } from "../../lib/supabase/client";
 import type {
   AttachPostImagesResult,
+  CampusOption,
   CategoryOption,
   ComposeSectionCode,
   ComposeSectionOption,
@@ -47,8 +48,8 @@ const SECTION_CATALOG: SectionCatalog = {
 const CATEGORY_CATALOG: CategoryCatalog = {
   life: [
     { slug: "life-facilities", label: "학교시설", sectionCode: "life" },
-    { slug: "life-food", label: "식당", sectionCode: "life" },
-    { slug: "life-dorm", label: "기숙사", sectionCode: "life" }
+    { slug: "life-food", label: "Food", sectionCode: "life" },
+    { slug: "life-dorm", label: "Rent", sectionCode: "life" }
   ],
   study: [
     { slug: "study-major", label: "전공정보", sectionCode: "study" },
@@ -84,6 +85,22 @@ const CAMPUS_NOTICE_CATEGORY_OPTIONS: CategoryOption[] = [
 const CAMPUS_NOTICE_CATEGORY_SLUGS = new Set(
   CAMPUS_NOTICE_CATEGORY_OPTIONS.map((category) => category.slug)
 );
+
+const CAMPUS_OPTIONS_BY_UNIVERSITY_SLUG: Record<string, CampusOption[]> = {
+  sjtu: [
+    { slug: "minhang", label: "민항" },
+    { slug: "xuhui", label: "쉬후이" },
+    { slug: "medical", label: "의학원" }
+  ],
+  ecnu: [
+    { slug: "putuo", label: "Putuo" },
+    { slug: "minhang", label: "Minhang" }
+  ],
+  sisu: [
+    { slug: "hongkou", label: "Hongkou" },
+    { slug: "songjiang", label: "Songjiang" }
+  ]
+};
 
 function canUseNoticeCategory(tier: AccessTier | null | undefined): boolean {
   return tier === "campus_master";
@@ -349,6 +366,14 @@ export function getUniversityOptionsForTier(
   return universities.filter((university) => university.slug === ownUniversitySlug);
 }
 
+export function getCampusOptionsForUniversitySlug(
+  universitySlug: string | null | undefined
+): CampusOption[] {
+  const normalizedSlug = universitySlug?.trim().toLowerCase() ?? "";
+  const options = CAMPUS_OPTIONS_BY_UNIVERSITY_SLUG[normalizedSlug] ?? [];
+  return [...options];
+}
+
 export function normalizeTags(value: string): string[] {
   if (!value.trim()) {
     return [];
@@ -444,7 +469,7 @@ export async function enqueuePostTranslation(params: {
 }
 
 export async function createPostViaRpc(input: CreatePostInput): Promise<CreatePostResult> {
-  const { data, error } = await supabase.rpc("create_post", {
+  const baseArgs = {
     p_section_code: input.sectionCode,
     p_category_slug: input.categorySlug,
     p_title: input.title,
@@ -452,8 +477,52 @@ export async function createPostViaRpc(input: CreatePostInput): Promise<CreatePo
     p_university_slug: input.universitySlug,
     p_location_text: input.locationText,
     p_tags: input.tags
-  });
+  };
 
+  const isCampusSignatureError = (message: string | undefined): boolean => {
+    if (!message) {
+      return false;
+    }
+
+    return (
+      /p_campus_slug/i.test(message) ||
+      /function\s+create_post/i.test(message)
+    );
+  };
+
+  if (typeof input.campusSlug === "string" && input.campusSlug.length > 0) {
+    const withCampusResult = await supabase.rpc("create_post", {
+      ...baseArgs,
+      p_campus_slug: input.campusSlug
+    });
+
+    if (withCampusResult.error && isCampusSignatureError(withCampusResult.error.message)) {
+      const fallbackResult = await supabase.rpc("create_post", baseArgs);
+      if (fallbackResult.error) {
+        throw fallbackResult.error;
+      }
+
+      console.log("[compose.service] create_post raw response", {
+        data: fallbackResult.data,
+        usedCampusSignature: false
+      });
+
+      return parseCreatePostResponse(fallbackResult.data);
+    }
+
+    if (withCampusResult.error) {
+      throw withCampusResult.error;
+    }
+
+    console.log("[compose.service] create_post raw response", {
+      data: withCampusResult.data,
+      usedCampusSignature: true
+    });
+
+    return parseCreatePostResponse(withCampusResult.data);
+  }
+
+  const { data, error } = await supabase.rpc("create_post", baseArgs);
   if (error) {
     throw error;
   }
@@ -542,6 +611,22 @@ export async function updatePostDegree(
     .from("posts")
     .update({
       degree: degree ?? null
+    })
+    .eq("id", postId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function updatePostCampus(
+  postId: number,
+  campusSlug: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("posts")
+    .update({
+      campus_slug: campusSlug ?? null
     })
     .eq("id", postId);
 

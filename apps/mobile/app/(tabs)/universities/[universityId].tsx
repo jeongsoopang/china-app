@@ -16,6 +16,7 @@ type UniversityRow = {
 
 type UniversityPost = {
   id: number;
+  campusSlug: string | null;
   authorId: string;
   authorName: string | null;
   authorTier: string | null;
@@ -619,6 +620,7 @@ export default function UniversityDetailScreen() {
         .select(
           `
           id,
+          campus_slug,
           author_id,
           category_id,
           title,
@@ -638,6 +640,10 @@ export default function UniversityDetailScreen() {
         .eq("university_id", university.id)
         .order("created_at", { ascending: false })
         .limit(postQueryLimit);
+
+      if (resolvedCampusSlug) {
+        query = query.eq("campus_slug", resolvedCampusSlug);
+      }
 
       if (filter === "notice") {
         query = query
@@ -668,6 +674,7 @@ export default function UniversityDetailScreen() {
         .select(
           `
           id,
+          campus_slug,
           author_id,
           category_id,
           title,
@@ -686,6 +693,10 @@ export default function UniversityDetailScreen() {
         .eq("university_id", university.id)
         .order("created_at", { ascending: false })
         .limit(postQueryLimit);
+
+      if (resolvedCampusSlug) {
+        query = query.eq("campus_slug", resolvedCampusSlug);
+      }
 
       if (filter === "notice") {
         query = query
@@ -716,6 +727,7 @@ export default function UniversityDetailScreen() {
         .select(
           `
           id,
+          campus_slug,
           author_id,
           category_id,
           title,
@@ -733,6 +745,10 @@ export default function UniversityDetailScreen() {
         .eq("university_id", university.id)
         .order("created_at", { ascending: false })
         .limit(postQueryLimit);
+
+      if (resolvedCampusSlug) {
+        query = query.eq("campus_slug", resolvedCampusSlug);
+      }
 
       if (filter === "notice") {
         query = query
@@ -793,6 +809,7 @@ export default function UniversityDetailScreen() {
 
     const rows = (data ?? []) as Array<{
       id: number;
+      campus_slug: string | null;
       author_id: string;
       category_id: number | null;
       title: string;
@@ -826,6 +843,7 @@ export default function UniversityDetailScreen() {
 
     const mapped: UniversityPost[] = rows.map((row) => ({
       id: row.id,
+      campusSlug: typeof row.campus_slug === "string" ? row.campus_slug : null,
       authorId: row.author_id,
       authorName: null,
       authorTier: null,
@@ -853,8 +871,8 @@ export default function UniversityDetailScreen() {
     }));
 
     const campusScopedRows =
-      hasCampusLanding && resolvedCampusSlug
-        ? rows
+      resolvedCampusSlug
+        ? rows.filter((row) => row.campus_slug === resolvedCampusSlug)
         : rows;
 
     const filteredRows = campusScopedRows.filter((row) => {

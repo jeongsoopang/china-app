@@ -7,8 +7,8 @@ import { useAuthSession } from "../../../src/features/auth/auth-session";
 import {
   fetchShanghaiPosts,
   formatDate,
+  getCardThumbnailUrl,
   getPreviewText,
-  getThumbnailUrl,
   type ShanghaiPost
 } from "../../../src/features/home/shanghai-posts";
 import { supabase } from "../../../src/lib/supabase/client";
@@ -90,7 +90,7 @@ export default function ShanghaiChurchScreen() {
         .maybeSingle(),
       fetchShanghaiPosts({
         categorySlugs: ["fun-church-notice"],
-        limit: 120
+        limit: 24
       })
     ]);
 
@@ -166,6 +166,19 @@ export default function ShanghaiChurchScreen() {
       cancelled = true;
     };
   }, [introContent.imageUrl]);
+
+  useEffect(() => {
+    if (activeTab !== "notice") {
+      return;
+    }
+
+    notices.slice(0, 6).forEach((post) => {
+      const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
+      if (thumbnailUrl) {
+        void Image.prefetch(thumbnailUrl);
+      }
+    });
+  }, [activeTab, notices]);
 
   return (
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -271,7 +284,7 @@ export default function ShanghaiChurchScreen() {
             <View style={styles.listWrap}>
               {notices.map((post) => {
                 const previewText = getPreviewText(post.abstract, post.body);
-                const thumbnailUrl = getThumbnailUrl(post.thumbnailImageUrl, post.body, post.images);
+                const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
                 return (
                   <Link
                     key={`church-notice-${post.id}`}
