@@ -29,6 +29,8 @@ type RawAnnouncementRow = {
   body: string | null;
   image_urls?: string[] | null;
   is_home_popup?: boolean | null;
+  is_pinned?: boolean | null;
+  pinned_at?: string | null;
   published_at: string | null;
   created_at: string | null;
   updated_at?: string | null;
@@ -41,6 +43,8 @@ export type AnnouncementDetail = {
   outline: string;
   body: string;
   image_urls: string[];
+  is_pinned: boolean;
+  pinned_at: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string | null;
@@ -129,6 +133,8 @@ function mapAnnouncementRow(row: RawAnnouncementRow): AnnouncementDetail {
     image_urls: Array.isArray(row.image_urls)
       ? row.image_urls.filter((value): value is string => typeof value === "string" && value.length > 0)
       : [],
+    is_pinned: Boolean(row.is_pinned),
+    pinned_at: row.pinned_at ?? null,
     published_at: row.published_at,
     created_at: row.created_at ?? "",
     updated_at: row.updated_at ?? null,
@@ -158,9 +164,11 @@ export async function fetchPublishedAnnouncements(limit = 50): Promise<Announcem
 
   const { data, error } = await announcementsClient
     .select(
-      "id, title, outline, body, image_urls, is_home_popup, published_at, created_at, updated_at, is_published"
+      "id, title, outline, body, image_urls, is_home_popup, is_pinned, pinned_at, published_at, created_at, updated_at, is_published"
     )
     .eq("is_published", true)
+    .order("is_pinned", { ascending: false })
+    .order("pinned_at", { ascending: false, nullsFirst: false })
     .order("published_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -188,7 +196,7 @@ export async function fetchAnnouncementDetailById(
 
   const { data, error } = await announcementsClient
     .select(
-      "id, title, outline, body, image_urls, is_home_popup, published_at, created_at, updated_at, is_published"
+      "id, title, outline, body, image_urls, is_home_popup, is_pinned, pinned_at, published_at, created_at, updated_at, is_published"
     )
     .eq("id", numericId)
     .eq("is_published", true)
@@ -208,10 +216,12 @@ export async function fetchLatestHomePopupAnnouncement(): Promise<AnnouncementDe
 
   const { data, error } = await announcementsClient
     .select(
-      "id, title, outline, body, image_urls, is_home_popup, published_at, created_at, updated_at, is_published"
+      "id, title, outline, body, image_urls, is_home_popup, is_pinned, pinned_at, published_at, created_at, updated_at, is_published"
     )
     .eq("is_published", true)
     .eq("is_home_popup", true)
+    .order("is_pinned", { ascending: false })
+    .order("pinned_at", { ascending: false, nullsFirst: false })
     .order("published_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(1)

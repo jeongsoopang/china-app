@@ -578,11 +578,34 @@ export async function updateAnnouncementById(params: {
   outline: string;
   body: string;
   isHomePopup: boolean;
+  isPinned: boolean;
   imageUrls: string[];
 }) {
   await requireGrandMasterAccess();
 
   const client = createAdminServiceClient();
+  const nowIso = new Date().toISOString();
+  const existingAnnouncement = await client
+    .from("announcements")
+    .select("id, is_pinned, pinned_at")
+    .eq("id", params.announcementId)
+    .maybeSingle();
+
+  if (existingAnnouncement.error) {
+    throw existingAnnouncement.error;
+  }
+
+  const existing = existingAnnouncement.data;
+  if (!existing) {
+    throw new Error("Announcement not found.");
+  }
+
+  let nextPinnedAt: string | null = existing.pinned_at;
+  if (!params.isPinned) {
+    nextPinnedAt = null;
+  } else if (!existing.is_pinned) {
+    nextPinnedAt = nowIso;
+  }
 
   const withImages = await (client
     .from("announcements")
@@ -592,7 +615,9 @@ export async function updateAnnouncementById(params: {
       body: params.body,
       image_urls: params.imageUrls,
       is_home_popup: params.isHomePopup,
-      updated_at: new Date().toISOString()
+      is_pinned: params.isPinned,
+      pinned_at: nextPinnedAt,
+      updated_at: nowIso
     })
     .eq("id", params.announcementId)
     .select(ANNOUNCEMENT_SELECT_WITH_IMAGES)
@@ -617,7 +642,9 @@ export async function updateAnnouncementById(params: {
         outline: params.outline,
         body: params.body,
         is_home_popup: params.isHomePopup,
-        updated_at: new Date().toISOString()
+        is_pinned: params.isPinned,
+        pinned_at: nextPinnedAt,
+        updated_at: nowIso
       })
       .eq("id", params.announcementId)
       .select(ANNOUNCEMENT_SELECT_NO_IMAGES)
@@ -636,7 +663,7 @@ export async function updateAnnouncementById(params: {
   }
 
   if (!updatedRow) {
-    throw new Error("Announcement not found.");
+    throw new Error("Failed to update announcement.");
   }
 
   if (updatedRow.is_published) {

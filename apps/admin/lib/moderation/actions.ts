@@ -32,6 +32,7 @@ function parseRequiredText(value: FormDataEntryValue | null, fieldName: string):
 
 const allowedReportActions = new Set(["none", "request_revision", "hide", "delete"]);
 const allowedAnnouncementPublishModes = new Set(["normal", "pinned"]);
+const allowedAnnouncementPinStates = new Set(["unpinned", "pinned"]);
 
 function parseCheckbox(value: FormDataEntryValue | null): boolean {
   return value === "on" || value === "true" || value === "1";
@@ -43,6 +44,14 @@ function parseImageUrlValues(formData: FormData, fieldName: string): string[] {
     .filter((value): value is string => typeof value === "string")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+}
+
+function parseAnnouncementPinState(value: FormDataEntryValue | null): boolean {
+  if (typeof value !== "string" || !allowedAnnouncementPinStates.has(value)) {
+    throw new Error("pinState must be one of: unpinned, pinned.");
+  }
+
+  return value === "pinned";
 }
 
 async function requireCurrentAdminUserId(): Promise<string> {
@@ -132,6 +141,7 @@ export async function updateAnnouncementAction(formData: FormData) {
   const outline = parseRequiredText(formData.get("outline"), "outline");
   const body = parseRequiredText(formData.get("body"), "body");
   const isHomePopup = parseCheckbox(formData.get("isHomePopup"));
+  const isPinned = parseAnnouncementPinState(formData.get("pinState"));
   const existingImageUrls = parseImageUrlValues(formData, "existingImageUrls");
   const imageFiles = parseAnnouncementImageFiles(formData, "images");
   if (imageFiles.length > 0 && !(await isAnnouncementImageColumnAvailable())) {
@@ -154,6 +164,7 @@ export async function updateAnnouncementAction(formData: FormData) {
     outline,
     body,
     isHomePopup,
+    isPinned,
     imageUrls
   });
 

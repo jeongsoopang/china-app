@@ -1,5 +1,6 @@
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { Image, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuthSession } from "../../src/features/auth/auth-session";
 import { useAppLanguage } from "../../src/features/language/app-language";
@@ -246,7 +247,15 @@ function AuthenticatedNotificationsContent() {
                         <View style={styles.cardContentOverlay}>
                           <View style={styles.cardHeader}>
                             <Text style={styles.cardTitle}>{announcement.title}</Text>
-                            <Text style={styles.statusText}>{isKo ? "게시됨" : "Published"}</Text>
+                            <View style={styles.cardHeaderRight}>
+                              {announcement.is_pinned ? (
+                                <View style={styles.pinnedBadge}>
+                                  <Ionicons name="pin" size={11} color="#b91c1c" />
+                                  <Text style={styles.pinnedBadgeLabel}>{isKo ? "상단 고정" : "PINNED"}</Text>
+                                </View>
+                              ) : null}
+                              <Text style={styles.statusText}>{isKo ? "게시됨" : "Published"}</Text>
+                            </View>
                           </View>
                           <Text style={styles.cardMessage}>
                             {announcement.outline || announcement.body || ""}
@@ -359,6 +368,12 @@ function AuthenticatedNotificationsContent() {
                     contentContainerStyle={styles.detailContentContainer}
                   >
                     <Text style={styles.detailTitle}>{selectedAnnouncement.title}</Text>
+                    {selectedAnnouncement.is_pinned ? (
+                      <View style={styles.detailPinnedBadge}>
+                        <Ionicons name="pin" size={12} color="#b91c1c" />
+                        <Text style={styles.detailPinnedBadgeLabel}>{isKo ? "상단 고정" : "PINNED"}</Text>
+                      </View>
+                    ) : null}
                     {selectedAnnouncement.outline ? (
                       <Text style={styles.detailOutline}>{selectedAnnouncement.outline}</Text>
                     ) : null}
@@ -561,11 +576,31 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: "flex-start"
   },
+  cardHeaderRight: {
+    alignItems: "flex-end",
+    gap: 4
+  },
   cardTitle: {
     flex: 1,
     fontSize: 15,
     fontWeight: "700",
     color: "#0f172a"
+  },
+  pinnedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+    backgroundColor: "#fef2f2",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2
+  },
+  pinnedBadgeLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#b91c1c"
   },
   statusText: {
     fontSize: 12,
@@ -649,6 +684,23 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
     color: "#0f172a"
+  },
+  detailPinnedBadge: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+    backgroundColor: "#fef2f2",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3
+  },
+  detailPinnedBadgeLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#b91c1c"
   },
   detailOutline: {
     fontSize: 14,

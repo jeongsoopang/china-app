@@ -20,6 +20,34 @@ function formatTime(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function PinnedBadge() {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        borderRadius: 999,
+        border: "1px solid #fca5a5",
+        backgroundColor: "#fef2f2",
+        color: "#b91c1c",
+        fontSize: 12,
+        fontWeight: 800,
+        lineHeight: 1,
+        padding: "3px 9px"
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path
+          d="M16 3l5 5-3 3v7.5a1.5 1.5 0 0 1-2.56 1.06L12 16.12l-3.44 3.44A1.5 1.5 0 0 1 6 18.5V11L3 8l5-5z"
+          fill="#b91c1c"
+        />
+      </svg>
+      상단 고정
+    </span>
+  );
+}
+
 function renderAnnouncementImages(imageUrls: string[]) {
   if (imageUrls.length === 0) {
     return <p className="muted-text" style={{ marginTop: 0 }}>No attached images.</p>;
@@ -158,7 +186,12 @@ export default async function AnnouncementsPage() {
                 {draftAnnouncements.map((announcement) => (
                   <article key={announcement.id} className="data-card">
                     <header className="data-card-header">
-                      <h3>{announcement.title}</h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <h3 style={{ margin: 0 }}>{announcement.title}</h3>
+                        {announcement.is_pinned ? (
+                          <PinnedBadge />
+                        ) : null}
+                      </div>
                       <span className="status-badge">draft</span>
                     </header>
 
@@ -281,6 +314,61 @@ export default async function AnnouncementsPage() {
                           Show as Home popup (also remains a normal announcement)
                         </label>
 
+                        <fieldset
+                          style={{
+                            gridColumn: "1 / -1",
+                            border: "none",
+                            padding: 0,
+                            margin: 0
+                          }}
+                        >
+                          <legend style={{ fontWeight: 700, marginBottom: 8 }}>고정 설정</legend>
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              gap: 8,
+                              flexWrap: "wrap"
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 999,
+                                padding: "6px 10px"
+                              }}
+                            >
+                              <input
+                                name="pinState"
+                                type="radio"
+                                value="unpinned"
+                                defaultChecked={!announcement.is_pinned}
+                              />
+                              고정 안 함
+                            </label>
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 999,
+                                padding: "6px 10px"
+                              }}
+                            >
+                              <input
+                                name="pinState"
+                                type="radio"
+                                value="pinned"
+                                defaultChecked={announcement.is_pinned}
+                              />
+                              상단 고정
+                            </label>
+                          </div>
+                        </fieldset>
+
                         {supportsAnnouncementImages ? (
                           <label style={{ gridColumn: "1 / -1" }}>
                             Attach additional images (optional)
@@ -331,7 +419,12 @@ export default async function AnnouncementsPage() {
                 {publishedAnnouncements.map((announcement) => (
                   <article key={announcement.id} className="data-card">
                     <header className="data-card-header">
-                      <h3>{announcement.title}</h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <h3 style={{ margin: 0 }}>{announcement.title}</h3>
+                        {announcement.is_pinned ? (
+                          <PinnedBadge />
+                        ) : null}
+                      </div>
                       <span className="status-badge">published</span>
                     </header>
 
@@ -437,6 +530,61 @@ export default async function AnnouncementsPage() {
                           />
                           Show as Home popup (also remains a normal announcement)
                         </label>
+
+                        <fieldset
+                          style={{
+                            gridColumn: "1 / -1",
+                            border: "none",
+                            padding: 0,
+                            margin: 0
+                          }}
+                        >
+                          <legend style={{ fontWeight: 700, marginBottom: 8 }}>고정 설정</legend>
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              gap: 8,
+                              flexWrap: "wrap"
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 999,
+                                padding: "6px 10px"
+                              }}
+                            >
+                              <input
+                                name="pinState"
+                                type="radio"
+                                value="unpinned"
+                                defaultChecked={!announcement.is_pinned}
+                              />
+                              고정 안 함
+                            </label>
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 999,
+                                padding: "6px 10px"
+                              }}
+                            >
+                              <input
+                                name="pinState"
+                                type="radio"
+                                value="pinned"
+                                defaultChecked={announcement.is_pinned}
+                              />
+                              상단 고정
+                            </label>
+                          </div>
+                        </fieldset>
 
                         {supportsAnnouncementImages ? (
                           <label style={{ gridColumn: "1 / -1" }}>
