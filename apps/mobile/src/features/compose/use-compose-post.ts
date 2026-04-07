@@ -34,7 +34,8 @@ import {
   updatePostBody,
   updatePostCampus,
   updatePostDegree,
-  updatePostMetadata
+  updatePostMetadata,
+  updatePostPinning
 } from "./compose.service";
 import type {
   CampusOption,
@@ -66,6 +67,7 @@ type ComposeState = {
   selectedUniversitySlug: string | null;
   campusOptions: CampusOption[];
   selectedCampusSlug: string | null;
+  isPinned: boolean;
   title: string;
   abstract: string;
   blocks: ComposeBlock[];
@@ -94,6 +96,7 @@ const INITIAL_STATE: ComposeState = {
   selectedUniversitySlug: null,
   campusOptions: [],
   selectedCampusSlug: null,
+  isPinned: false,
   title: "",
   abstract: "",
   blocks: [],
@@ -334,9 +337,31 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     return state.selectedSectionCode === "study";
   }, [state.selectedSectionCode]);
 
+  const isSchoolWideNoticeComposer = useMemo(() => {
+    return (
+      isCampusMasterProfile(state.profile) &&
+      state.selectedSectionCode === "life" &&
+      isCampusNoticeCategorySlug(state.selectedCategorySlug)
+    );
+  }, [state.profile, state.selectedCategorySlug, state.selectedSectionCode]);
+
+  const isSchoolWideOtherComposer = useMemo(() => {
+    return state.selectedSectionCode === "life" && state.selectedCategorySlug === "life-other";
+  }, [state.selectedCategorySlug, state.selectedSectionCode]);
+
   const campusRequired = useMemo(() => {
-    return state.selectedSectionCode === "life" && state.campusOptions.length > 0;
-  }, [state.campusOptions.length, state.selectedSectionCode]);
+    return (
+      state.selectedSectionCode === "life" &&
+      state.campusOptions.length > 0 &&
+      !isSchoolWideNoticeComposer &&
+      !isSchoolWideOtherComposer
+    );
+  }, [
+    isSchoolWideNoticeComposer,
+    isSchoolWideOtherComposer,
+    state.campusOptions.length,
+    state.selectedSectionCode
+  ]);
 
   const abstractRequired = useMemo(() => {
     return !isChurchIntroCategorySlug(state.selectedCategorySlug);
@@ -408,6 +433,14 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     verifiedUniversityId
   ]);
 
+  const canPinPost = useMemo(() => {
+    return (
+      isCampusMasterProfile(state.profile) &&
+      state.selectedSectionCode === "life" &&
+      isCampusNoticeCategorySlug(state.selectedCategorySlug)
+    );
+  }, [state.profile, state.selectedCategorySlug, state.selectedSectionCode]);
+
   const publishDisabledReason = useMemo(() => {
     if (!isSignedIn) {
       return "Sign in to create a post.";
@@ -451,10 +484,10 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       }
 
       if (!isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
-        return "Campus-Master can only compose campus notice.";
+        return "Campus-Master can only compose School notice category.";
       }
     } else if (isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
-      return "Only Campus-Master can compose campus notice.";
+      return "Only Campus-Master can compose School notice.";
     }
 
     if (!state.title.trim()) {
@@ -513,6 +546,17 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
   ]);
 
   useEffect(() => {
+    if (canPinPost || !state.isPinned) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      isPinned: false
+    }));
+  }, [canPinPost, state.isPinned]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function bootstrap() {
@@ -539,6 +583,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           selectedUniversitySlug: null,
           campusOptions: [],
           selectedCampusSlug: null,
+          isPinned: false,
           errorMessage: null
         }));
         return;
@@ -610,6 +655,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         selectedUniversitySlug,
         campusOptions,
         selectedCampusSlug,
+        isPinned: false,
         blocks: current.blocks.length > 0 ? current.blocks : [createParagraphBlock()],
         errorMessage: universityError,
         infoMessage: null
@@ -922,6 +968,15 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     }));
   }
 
+  function setPinned(value: boolean) {
+    setState((current) => ({
+      ...current,
+      isPinned: value,
+      errorMessage: null,
+      infoMessage: null
+    }));
+  }
+
   async function submit() {
     if (state.action !== "idle") {
       return;
@@ -963,14 +1018,14 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
       if (!isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
         setState((current) => ({
           ...current,
-          errorMessage: "Campus-Master can only compose campus notice."
+          errorMessage: "Campus-Master can only compose School notice category."
         }));
         return;
       }
     } else if (isCampusNoticeCategorySlug(state.selectedCategorySlug)) {
       setState((current) => ({
         ...current,
-        errorMessage: "Only Campus-Master can compose campus notice."
+        errorMessage: "Only Campus-Master can compose School notice."
       }));
       return;
     }
@@ -1104,12 +1159,18 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
         body: draftBody,
         universitySlug: selectedSection.code === "fun" ? null : resolvedUniversitySlug,
         campusSlug:
-          selectedSection.code === "life"
+          selectedSection.code === "life" &&
+          !isSchoolWideNoticeComposer &&
+          !isSchoolWideOtherComposer
             ? state.selectedCampusSlug
             : null,
         locationText: state.locationText.trim() || null,
         tags: normalizeTags(state.tagsInput)
       });
+      const canPinForSubmission =
+        isCampusMasterProfile(state.profile) &&
+        selectedSection.code === "life" &&
+        isCampusNoticeCategorySlug(state.selectedCategorySlug);
 
       const infoMessages: string[] = [postResult.message ?? "Post created successfully."];
       const postIdNumeric = parsePostId(postResult.postId);
@@ -1143,9 +1204,22 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
 
         if (state.selectedSectionCode === "life") {
           try {
-            await updatePostCampus(postIdNumeric, state.selectedCampusSlug ?? null);
+            await updatePostCampus(
+              postIdNumeric,
+              isSchoolWideNoticeComposer || isSchoolWideOtherComposer
+                ? null
+                : (state.selectedCampusSlug ?? null)
+            );
           } catch (error) {
             infoMessages.push(`Post saved, but campus update failed: ${mapCreatePostError(error)}`);
+          }
+        }
+
+        if (canPinForSubmission) {
+          try {
+            await updatePostPinning(postIdNumeric, state.isPinned);
+          } catch (error) {
+            infoMessages.push(`Post saved, but pin update failed: ${mapCreatePostError(error)}`);
           }
         }
       }
@@ -1281,6 +1355,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
           state.selectedSectionCode === "life"
             ? state.selectedCampusSlug
             : null,
+        isPinned: false,
         thumbnailBlockId: null,
         locationText: "",
         tagsInput: "",
@@ -1401,6 +1476,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     isSignedIn,
     isLoading,
     canSubmit,
+    canPinPost,
     universityRequired,
     universitySelectorDisabled,
     universitySelectionLocked,
@@ -1411,6 +1487,7 @@ export function useComposePost(params?: { profile?: UserProfileRow | null }) {
     updateParagraphText,
     setLocationText,
     setTagsInput,
+    setPinned,
     selectSection,
     selectCategory,
     selectDegree,

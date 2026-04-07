@@ -16,6 +16,7 @@ type UniversityRow = {
 
 type UniversityPost = {
   id: number;
+  isPinned: boolean;
   campusSlug: string | null;
   authorId: string;
   authorName: string | null;
@@ -40,8 +41,12 @@ type AlumniContent = {
   isVisible: boolean;
 };
 
-type SectionFilter = "all" | "life" | "study" | "qa" | "notice" | "alumni";
-type NoticeCategoryFilter = "all" | "life-notice" | "life-opportunity" | "life-info-sharing";
+type SectionFilter = "all" | "life" | "study" | "qa" | "notice" | "other" | "alumni";
+type NoticeCategoryFilter =
+  | "all"
+  | "life-notice"
+  | "life-opportunity"
+  | "life-info-sharing";
 type CampusSlug = "minhang" | "xuhui" | "medical" | "putuo" | "hongkou" | "songjiang";
 type ViewerTier =
   | "bronze"
@@ -103,6 +108,7 @@ const CAMPUS_NOTICE_CATEGORY_SLUGS = [
   "life-opportunity",
   "life-info-sharing"
 ] as const;
+const SCHOOL_OTHER_CATEGORY_SLUG = "life-other" as const;
 
 const NOTICE_CATEGORY_FILTER_OPTIONS: Array<{ value: NoticeCategoryFilter; label: string }> = [
   { value: "all", label: "전체" },
@@ -187,10 +193,18 @@ export default function UniversityDetailScreen() {
   const [posts, setPosts] = useState<UniversityPost[]>([]);
   const initialSectionFilter = useMemo<SectionFilter>(() => {
     const raw = Array.isArray(section) ? section[0] : section;
-    if (raw === "life" || raw === "study" || raw === "qa" || raw === "notice" || raw === "alumni") {
-      return raw;
+    if (
+      raw === "all" ||
+      raw === "life" ||
+      raw === "study" ||
+      raw === "qa" ||
+      raw === "notice" ||
+      raw === "other" ||
+      raw === "alumni"
+    ) {
+      return raw === "all" ? "life" : raw;
     }
-    return "all";
+    return "life";
   }, [section]);
 
   const [filter, setFilter] = useState<SectionFilter>(initialSectionFilter);
@@ -334,6 +348,10 @@ export default function UniversityDetailScreen() {
 
   const noticeLocked =
     filter === "notice" &&
+    !isViewerUniversityLoading &&
+    !canViewCampusNotice;
+  const otherLocked =
+    filter === "other" &&
     !isViewerUniversityLoading &&
     !canViewCampusNotice;
   const canViewAlumni =
@@ -604,7 +622,7 @@ export default function UniversityDetailScreen() {
       return;
     }
 
-    if (filter === "notice" && (isViewerUniversityLoading || !canViewCampusNotice)) {
+    if ((filter === "notice" || filter === "other") && (isViewerUniversityLoading || !canViewCampusNotice)) {
       setPosts([]);
       setPostsError(null);
       setIsLoading(false);
@@ -620,6 +638,7 @@ export default function UniversityDetailScreen() {
         .select(
           `
           id,
+          is_pinned,
           campus_slug,
           author_id,
           category_id,
@@ -638,10 +657,9 @@ export default function UniversityDetailScreen() {
         `
         )
         .eq("university_id", university.id)
-        .order("created_at", { ascending: false })
         .limit(postQueryLimit);
 
-      if (resolvedCampusSlug) {
+      if (resolvedCampusSlug && filter !== "notice" && filter !== "other") {
         query = query.eq("campus_slug", resolvedCampusSlug);
       }
 
@@ -649,6 +667,10 @@ export default function UniversityDetailScreen() {
         query = query
           .eq("sections.code", "life")
           .in("categories.slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
+      } else if (filter === "other") {
+        query = query
+          .eq("sections.code", "life")
+          .eq("categories.slug", SCHOOL_OTHER_CATEGORY_SLUG);
       } else if (filter === "all") {
         query = query
           .in("sections.code", ["life", "study", "qa"])
@@ -665,7 +687,14 @@ export default function UniversityDetailScreen() {
         query = query.eq("sections.code", filter);
       }
 
-      return query;
+      if (filter === "notice") {
+        return query
+          .order("is_pinned", { ascending: false })
+          .order("pinned_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+      }
+
+      return query.order("created_at", { ascending: false });
     };
 
     const attemptWithThumbnailOnly = async () => {
@@ -674,6 +703,7 @@ export default function UniversityDetailScreen() {
         .select(
           `
           id,
+          is_pinned,
           campus_slug,
           author_id,
           category_id,
@@ -691,10 +721,9 @@ export default function UniversityDetailScreen() {
         `
         )
         .eq("university_id", university.id)
-        .order("created_at", { ascending: false })
         .limit(postQueryLimit);
 
-      if (resolvedCampusSlug) {
+      if (resolvedCampusSlug && filter !== "notice" && filter !== "other") {
         query = query.eq("campus_slug", resolvedCampusSlug);
       }
 
@@ -702,6 +731,10 @@ export default function UniversityDetailScreen() {
         query = query
           .eq("sections.code", "life")
           .in("categories.slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
+      } else if (filter === "other") {
+        query = query
+          .eq("sections.code", "life")
+          .eq("categories.slug", SCHOOL_OTHER_CATEGORY_SLUG);
       } else if (filter === "all") {
         query = query
           .in("sections.code", ["life", "study", "qa"])
@@ -718,7 +751,14 @@ export default function UniversityDetailScreen() {
         query = query.eq("sections.code", filter);
       }
 
-      return query;
+      if (filter === "notice") {
+        return query
+          .order("is_pinned", { ascending: false })
+          .order("pinned_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+      }
+
+      return query.order("created_at", { ascending: false });
     };
 
     const attemptWithoutMetadata = async () => {
@@ -727,6 +767,7 @@ export default function UniversityDetailScreen() {
         .select(
           `
           id,
+          is_pinned,
           campus_slug,
           author_id,
           category_id,
@@ -743,10 +784,9 @@ export default function UniversityDetailScreen() {
         `
         )
         .eq("university_id", university.id)
-        .order("created_at", { ascending: false })
         .limit(postQueryLimit);
 
-      if (resolvedCampusSlug) {
+      if (resolvedCampusSlug && filter !== "notice" && filter !== "other") {
         query = query.eq("campus_slug", resolvedCampusSlug);
       }
 
@@ -754,6 +794,10 @@ export default function UniversityDetailScreen() {
         query = query
           .eq("sections.code", "life")
           .in("categories.slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
+      } else if (filter === "other") {
+        query = query
+          .eq("sections.code", "life")
+          .eq("categories.slug", SCHOOL_OTHER_CATEGORY_SLUG);
       } else if (filter === "all") {
         query = query
           .in("sections.code", ["life", "study", "qa"])
@@ -770,7 +814,14 @@ export default function UniversityDetailScreen() {
         query = query.eq("sections.code", filter);
       }
 
-      return query;
+      if (filter === "notice") {
+        return query
+          .order("is_pinned", { ascending: false })
+          .order("pinned_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+      }
+
+      return query.order("created_at", { ascending: false });
     };
 
     const isMissingColumnError = (message: string | null | undefined, columnName: string) => {
@@ -809,6 +860,7 @@ export default function UniversityDetailScreen() {
 
     const rows = (data ?? []) as Array<{
       id: number;
+      is_pinned?: boolean | null;
       campus_slug: string | null;
       author_id: string;
       category_id: number | null;
@@ -829,10 +881,17 @@ export default function UniversityDetailScreen() {
     const { data: noticeCategoryRows } = await supabase
       .from("categories")
       .select("id, slug")
-      .in("slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS]);
+      .in("slug", [...CAMPUS_NOTICE_CATEGORY_SLUGS, SCHOOL_OTHER_CATEGORY_SLUG]);
 
     const noticeCategoryIds = new Set(
-      ((noticeCategoryRows ?? []) as Array<{ id: string | number }>).map((row) => String(row.id))
+      ((noticeCategoryRows ?? []) as Array<{ id: string | number; slug: string | null }>)
+        .filter((row) =>
+          typeof row.slug === "string" &&
+          CAMPUS_NOTICE_CATEGORY_SLUGS.includes(
+            row.slug as (typeof CAMPUS_NOTICE_CATEGORY_SLUGS)[number]
+          )
+        )
+        .map((row) => String(row.id))
     );
     const noticeCategorySlugById = new Map<string, string>();
     ((noticeCategoryRows ?? []) as Array<{ id: string | number; slug: string | null }>).forEach((row) => {
@@ -843,6 +902,7 @@ export default function UniversityDetailScreen() {
 
     const mapped: UniversityPost[] = rows.map((row) => ({
       id: row.id,
+      isPinned: row.is_pinned === true,
       campusSlug: typeof row.campus_slug === "string" ? row.campus_slug : null,
       authorId: row.author_id,
       authorName: null,
@@ -871,7 +931,7 @@ export default function UniversityDetailScreen() {
     }));
 
     const campusScopedRows =
-      resolvedCampusSlug
+      resolvedCampusSlug && filter !== "notice"
         ? rows.filter((row) => row.campus_slug === resolvedCampusSlug)
         : rows;
 
@@ -887,9 +947,10 @@ export default function UniversityDetailScreen() {
           CAMPUS_NOTICE_CATEGORY_SLUGS.includes(
             resolvedNoticeSlug as (typeof CAMPUS_NOTICE_CATEGORY_SLUGS)[number]
           ));
+      const isOtherRow = resolvedNoticeSlug === SCHOOL_OTHER_CATEGORY_SLUG;
 
       if (isSjtuCampusLanding) {
-        return !isNoticeRow;
+        return !isNoticeRow && !isOtherRow;
       }
 
       if (filter === "notice") {
@@ -904,8 +965,12 @@ export default function UniversityDetailScreen() {
         return resolvedNoticeSlug === noticeCategoryFilter;
       }
 
+      if (filter === "other") {
+        return isOtherRow;
+      }
+
       if (filter === "all" || filter === "life") {
-        return !isNoticeRow;
+        return !isNoticeRow && !isOtherRow;
       }
 
       return true;
@@ -1199,12 +1264,12 @@ export default function UniversityDetailScreen() {
           >
             <View style={styles.noticeHeroButtonContent}>
               <Ionicons name="notifications-outline" size={20} color={colors.background} />
-              <Text style={styles.noticeHeroButtonLabel}>캠퍼스 공지</Text>
+              <Text style={styles.noticeHeroButtonLabel}>학교 공지</Text>
             </View>
           </Pressable>
 
           {isBronzeViewer ? (
-            <Text style={styles.noticeHeroHelper}>Bronze 등급은 캠퍼스 공지를 열람할 수 없습니다.</Text>
+            <Text style={styles.noticeHeroHelper}>Bronze 등급은 학교 공지를 열람할 수 없습니다.</Text>
           ) : null}
         </View>
       ) : null}
@@ -1323,18 +1388,18 @@ export default function UniversityDetailScreen() {
       {!isCampusLanding ? (
         <View style={styles.filterRow}>
         {([
-          { value: "all", label: "All" },
           { value: "life", label: "School" },
           { value: "study", label: "Study" },
           { value: "qa", label: "Q&A" },
-          { value: "notice", label: "캠퍼스 공지" },
+          { value: "notice", label: "학교 공지" },
+          { value: "other", label: "기타" },
           { value: "alumni", label: "Alumni" }
         ] as const).map((option) => (
           <Pressable
             key={option.value}
             onPress={() => {
-              if (option.value === "notice") {
-                setFilter("notice");
+              if (option.value === "notice" || option.value === "other") {
+                setFilter(option.value);
                 setNoticeCategoryFilter("all");
                 return;
               }
@@ -1391,6 +1456,9 @@ export default function UniversityDetailScreen() {
       {!isCampusLanding && filter === "notice" && isViewerUniversityLoading ? (
         <Text style={styles.metaText}>Checking announcement access...</Text>
       ) : null}
+      {!isCampusLanding && filter === "other" && isViewerUniversityLoading ? (
+        <Text style={styles.metaText}>Checking category access...</Text>
+      ) : null}
       {!isCampusLanding && filter === "alumni" && isViewerUniversityLoading ? (
         <Text style={styles.metaText}>Checking alumni page access...</Text>
       ) : null}
@@ -1419,8 +1487,32 @@ export default function UniversityDetailScreen() {
             }}
           >
             {isBronzeViewer
-              ? "Bronze 등급은 캠퍼스 공지를 열람할 수 없습니다."
-              : "You can only view your campus announcement."}
+              ? "Bronze 등급은 학교 공지를 열람할 수 없습니다."
+              : "You can only view your university announcements."}
+          </Text>
+        </View>
+      ) : null}
+      {!isCampusLanding && filter === "other" && otherLocked ? (
+        <View
+          style={{
+            alignItems: "center",
+            justifyContent: "center",
+            paddingTop: 120,
+            paddingHorizontal: spacing.lg
+          }}
+        >
+          <Ionicons name="lock-closed" size={56} color={colors.textMuted} />
+          <Text
+            style={{
+              marginTop: spacing.md,
+              color: colors.textMuted,
+              fontSize: 15,
+              textAlign: "center"
+            }}
+          >
+            {isBronzeViewer
+              ? "Bronze 등급은 기타 게시판을 열람할 수 없습니다."
+              : "You can only view your university 기타 게시판."}
           </Text>
         </View>
       ) : null}
@@ -1451,6 +1543,7 @@ export default function UniversityDetailScreen() {
       filter !== "study" &&
       filter !== "alumni" &&
       !(filter === "notice" && (isViewerUniversityLoading || noticeLocked)) &&
+      !(filter === "other" && (isViewerUniversityLoading || otherLocked)) &&
       posts.length === 0 &&
       !errorMessage &&
       !postsError ? (
@@ -1788,6 +1881,7 @@ export default function UniversityDetailScreen() {
       filter !== "qa" &&
       filter !== "alumni" &&
       !(filter === "notice" && noticeLocked) &&
+      !(filter === "other" && otherLocked) &&
       posts.map((post) => {
         const previewText = getPreviewText(post.abstract, post.body);
         const thumbnailUrl = getCardThumbnailUrl(post.thumbnailImageUrl);
@@ -1811,9 +1905,17 @@ export default function UniversityDetailScreen() {
                 <Image source={{ uri: thumbnailUrl }} style={styles.postThumbnail} />
               ) : null}
               <View style={styles.postContent}>
-                <Text style={styles.postTitle} numberOfLines={2}>
-                  {post.title}
-                </Text>
+                <View style={styles.postTitleRow}>
+                  <Text style={styles.postTitle} numberOfLines={2}>
+                    {post.title}
+                  </Text>
+                  {filter === "notice" && post.isPinned ? (
+                    <View style={styles.pinnedBadge}>
+                      <Ionicons name="pin" size={11} color="#dc2626" />
+                      <Text style={styles.pinnedBadgeLabel}>PIN</Text>
+                    </View>
+                  ) : null}
+                </View>
                 {labelParts ? <Text style={styles.postMeta}>{labelParts}</Text> : null}
                 {previewText ? (
                   <Text style={styles.postPreview} numberOfLines={3}>
@@ -2175,10 +2277,33 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4
   },
+  postTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8
+  },
   postTitle: {
+    flex: 1,
     fontSize: 16,
     fontWeight: "700",
     color: colors.textPrimary
+  },
+  pinnedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2
+  },
+  pinnedBadgeLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#dc2626",
+    letterSpacing: 0.3
   },
   postMeta: {
     fontSize: typography.caption,

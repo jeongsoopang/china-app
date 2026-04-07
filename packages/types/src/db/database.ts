@@ -15,6 +15,8 @@ export type Database = {
           created_at: string;
           id: number;
           image_urls: string[];
+          is_pinned: boolean;
+          pinned_at: string | null;
           published_at: string | null;
           published_by: string | null;
           status: string;
@@ -26,6 +28,8 @@ export type Database = {
           created_at?: string;
           id?: number;
           image_urls?: string[];
+          is_pinned?: boolean;
+          pinned_at?: string | null;
           published_at?: string | null;
           published_by?: string | null;
           status?: string;
@@ -37,6 +41,8 @@ export type Database = {
           created_at?: string;
           id?: number;
           image_urls?: string[];
+          is_pinned?: boolean;
+          pinned_at?: string | null;
           published_at?: string | null;
           published_by?: string | null;
           status?: string;
@@ -478,9 +484,11 @@ export type Database = {
           degree: string | null;
           id: number;
           is_anonymous: boolean;
+          is_pinned: boolean;
           last_activity_at: string;
           like_count: number;
           original_language: string;
+          pinned_at: string | null;
           section_id: string;
           status: Database["public"]["Enums"]["post_status"];
           tags: string[];
@@ -504,9 +512,11 @@ export type Database = {
           degree?: string | null;
           id?: number;
           is_anonymous?: boolean;
+          is_pinned?: boolean;
           last_activity_at?: string;
           like_count?: number;
           original_language?: string;
+          pinned_at?: string | null;
           section_id: string;
           status?: Database["public"]["Enums"]["post_status"];
           tags?: string[];
@@ -530,9 +540,11 @@ export type Database = {
           degree?: string | null;
           id?: number;
           is_anonymous?: boolean;
+          is_pinned?: boolean;
           last_activity_at?: string;
           like_count?: number;
           original_language?: string;
+          pinned_at?: string | null;
           section_id?: string;
           status?: Database["public"]["Enums"]["post_status"];
           tags?: string[];
@@ -1069,6 +1081,8 @@ export type Database = {
       publish_announcement: {
         Args: {
           p_announcement_id: number;
+          p_actor_user_id?: string;
+          p_is_pinned?: boolean;
         };
         Returns:
           | string

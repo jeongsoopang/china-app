@@ -182,6 +182,12 @@ export default function TabsLayout() {
         name="notifications"
         options={{
           title: "Notifications",
+          href: {
+            pathname: "/notifications",
+            params: {
+              tab: "notification"
+            }
+          },
           headerShown: false,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons

@@ -1,7 +1,8 @@
-import { Link, useRouter } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Image, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuthSession } from "../../src/features/auth/auth-session";
+import { useAppLanguage } from "../../src/features/language/app-language";
 import { CityHeroHeader } from "../../src/ui/city-hero-header";
 import {
   fetchPublishedAnnouncements,
@@ -49,8 +50,13 @@ function AnnouncementAttachmentImage({ imageUrl }: { imageUrl: string }) {
 
 function AuthenticatedNotificationsContent() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const notifications = useNotifications();
-  const [tab, setTab] = useState<NotificationTab>("announcement");
+  const { resolvedLanguage } = useAppLanguage();
+  const rawTab = params.tab;
+  const tabParam = Array.isArray(rawTab) ? rawTab[0] : rawTab;
+  const initialTab: NotificationTab = tabParam === "announcement" ? "announcement" : "notification";
+  const [tab, setTab] = useState<NotificationTab>(initialTab);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<AnnouncementDetail | null>(null);
   const [isLoadingAnnouncement, setIsLoadingAnnouncement] = useState(false);
   const [announcementError, setAnnouncementError] = useState<string | null>(null);
@@ -61,6 +67,11 @@ function AuthenticatedNotificationsContent() {
   const announcementItems = publishedAnnouncements;
   const personalItems = useMemo(() => notifications.state.notifications, [notifications.state.notifications]);
   const personalUnreadCount = personalItems.filter((item) => !item.is_read).length;
+  const isKo = resolvedLanguage === "ko";
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   async function loadPublishedAnnouncements() {
     setPublishedAnnouncementsError(null);
@@ -127,13 +138,13 @@ function AuthenticatedNotificationsContent() {
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={styles.container}>
           <CityHeroHeader
-            title="Notifications"
+            title={isKo ? "알림" : "Notifications"}
             height={164}
             imageOffsetY={-10}
             contentOffsetY={8}
           />
           <View style={styles.contentInner}>
-            <Text style={styles.text}>Loading notifications...</Text>
+            <Text style={styles.text}>{isKo ? "알림을 불러오는 중..." : "Loading notifications..."}</Text>
           </View>
         </ScrollView>
       </View>
@@ -144,7 +155,7 @@ function AuthenticatedNotificationsContent() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container}>
         <CityHeroHeader
-          title="Notifications"
+          title={isKo ? "알림" : "Notifications"}
           height={164}
           imageOffsetY={-10}
           contentOffsetY={8}
@@ -156,7 +167,7 @@ function AuthenticatedNotificationsContent() {
               style={[styles.tabCard, tab === "announcement" && styles.tabCardActive]}
             >
               <Text style={[styles.tabTitle, tab === "announcement" && styles.tabTitleActive]}>
-                Announcement
+                {isKo ? "공지" : "Announcement"}
               </Text>
               <Text style={[styles.tabMeta, tab === "announcement" && styles.tabMetaActive]}>
                 {announcementItems.length}
@@ -167,7 +178,7 @@ function AuthenticatedNotificationsContent() {
               style={[styles.tabCard, tab === "notification" && styles.tabCardActive]}
             >
               <Text style={[styles.tabTitle, tab === "notification" && styles.tabTitleActive]}>
-                Notification
+                {isKo ? "알림" : "Notification"}
               </Text>
               <Text style={[styles.tabMeta, tab === "notification" && styles.tabMetaActive]}>
                 {personalItems.length}
@@ -178,7 +189,9 @@ function AuthenticatedNotificationsContent() {
           <View style={styles.metaRow}>
             {tab === "notification" ? (
               <>
-                <Text style={styles.metaText}>Unread: {personalUnreadCount}</Text>
+                <Text style={styles.metaText}>
+                  {isKo ? `읽지 않음: ${personalUnreadCount}` : `Unread: ${personalUnreadCount}`}
+                </Text>
                 <Pressable
                   disabled={!notifications.canMarkAllAsRead}
                   onPress={notifications.onMarkAllAsRead}
@@ -188,12 +201,16 @@ function AuthenticatedNotificationsContent() {
                   ]}
                 >
                   <Text style={styles.markAllButtonLabel}>
-                    {notifications.isMarkingAll ? "Marking..." : "Mark all as read"}
+                    {notifications.isMarkingAll
+                      ? (isKo ? "처리 중..." : "Marking...")
+                      : (isKo ? "모두 읽음 처리" : "Mark all as read")}
                   </Text>
                 </Pressable>
               </>
             ) : (
-              <Text style={styles.metaText}>Published: {announcementItems.length}</Text>
+              <Text style={styles.metaText}>
+                {isKo ? `게시됨: ${announcementItems.length}` : `Published: ${announcementItems.length}`}
+              </Text>
             )}
           </View>
 
@@ -203,11 +220,11 @@ function AuthenticatedNotificationsContent() {
           ) : null}
 
           {tab === "announcement" && isLoadingPublishedAnnouncements && announcementItems.length === 0 ? (
-            <Text style={styles.text}>Loading announcements...</Text>
+            <Text style={styles.text}>{isKo ? "공지를 불러오는 중..." : "Loading announcements..."}</Text>
           ) : tab === "announcement" && announcementItems.length === 0 ? (
-            <Text style={styles.text}>No announcements yet.</Text>
+            <Text style={styles.text}>{isKo ? "등록된 공지가 없습니다." : "No announcements yet."}</Text>
           ) : tab === "notification" && personalItems.length === 0 ? (
-            <Text style={styles.text}>No notifications yet.</Text>
+            <Text style={styles.text}>{isKo ? "알림이 없습니다." : "No notifications yet."}</Text>
           ) : (
             <View style={styles.list}>
               {tab === "announcement"
@@ -229,7 +246,7 @@ function AuthenticatedNotificationsContent() {
                         <View style={styles.cardContentOverlay}>
                           <View style={styles.cardHeader}>
                             <Text style={styles.cardTitle}>{announcement.title}</Text>
-                            <Text style={styles.statusText}>Published</Text>
+                            <Text style={styles.statusText}>{isKo ? "게시됨" : "Published"}</Text>
                           </View>
                           <Text style={styles.cardMessage}>
                             {announcement.outline || announcement.body || ""}
@@ -272,7 +289,11 @@ function AuthenticatedNotificationsContent() {
                             <View style={styles.cardHeader}>
                               <Text style={styles.cardTitle}>{notification.title}</Text>
                               <Text style={styles.statusText}>
-                                {isPendingItem ? "Marking..." : notification.is_read ? "Read" : "Unread"}
+                                {isPendingItem
+                                  ? (isKo ? "처리 중..." : "Marking...")
+                                  : notification.is_read
+                                    ? (isKo ? "읽음" : "Read")
+                                    : (isKo ? "읽지 않음" : "Unread")}
                               </Text>
                             </View>
                             <Text style={styles.cardMessage}>{notification.body}</Text>
@@ -286,7 +307,7 @@ function AuthenticatedNotificationsContent() {
           )}
 
           <Pressable onPress={() => void handleRefresh()} style={styles.refreshButton}>
-            <Text style={styles.refreshButtonLabel}>Refresh</Text>
+            <Text style={styles.refreshButtonLabel}>{isKo ? "새로고침" : "Refresh"}</Text>
           </Pressable>
 
           {notifications.state.infoMessage ? (
@@ -367,19 +388,21 @@ function AuthenticatedNotificationsContent() {
 
 export default function NotificationsScreen() {
   const auth = useAuthSession();
+  const { resolvedLanguage } = useAppLanguage();
+  const isKo = resolvedLanguage === "ko";
 
   if (auth.isLoading) {
     return (
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={styles.container}>
           <CityHeroHeader
-            title="Notifications"
+            title={isKo ? "알림" : "Notifications"}
             height={164}
             imageOffsetY={-10}
             contentOffsetY={8}
           />
           <View style={[styles.contentInner, styles.statusBlock]}>
-            <Text style={styles.text}>Checking session...</Text>
+            <Text style={styles.text}>{isKo ? "세션 확인 중..." : "Checking session..."}</Text>
           </View>
         </ScrollView>
       </View>
@@ -391,13 +414,15 @@ export default function NotificationsScreen() {
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={styles.container}>
           <CityHeroHeader
-            title="Notifications"
+            title={isKo ? "알림" : "Notifications"}
             height={164}
             imageOffsetY={-10}
             contentOffsetY={8}
           />
           <View style={[styles.contentInner, styles.statusBlock]}>
-            <Text style={styles.text}>Sign in to view your notifications.</Text>
+            <Text style={styles.text}>
+              {isKo ? "알림을 보려면 로그인하세요." : "Sign in to view your notifications."}
+            </Text>
             <Link
               href={{
                 pathname: "/auth/sign-in",
@@ -405,7 +430,7 @@ export default function NotificationsScreen() {
               }}
               style={styles.authLink}
             >
-              Sign In
+              {isKo ? "로그인" : "Sign In"}
             </Link>
           </View>
         </ScrollView>

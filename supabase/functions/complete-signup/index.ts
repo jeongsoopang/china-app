@@ -23,12 +23,30 @@ function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+const DUPLICATE_DISPLAY_NAME_MESSAGE = "이미 사용 중인 사용자명입니다.";
+
+function isDuplicateDisplayNameError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    (normalized.includes("duplicate key value violates unique constraint") &&
+      normalized.includes("display_name")) ||
+    normalized.includes("user_profiles_display_name_key") ||
+    normalized.includes("user_profiles_display_name_ci_unique_idx") ||
+    normalized.includes("lower(btrim(display_name))")
+  );
+}
+
 type VerificationRequestRow = {
   id: string;
   email: string;
   expires_at: string;
   verified_at: string | null;
   consumed_at: string | null;
+};
+
+type ExistingProfileNameRow = {
+  id: string;
+  display_name: string | null;
 };
 
 Deno.serve(async (req) => {
@@ -59,6 +77,7 @@ Deno.serve(async (req) => {
     const email = normalizeEmail(body?.email);
     const password = typeof body?.password === "string" ? body.password : "";
     const displayName = normalizeText(body?.displayName);
+    const normalizedDisplayName = displayName.toLowerCase();
     const realName = normalizeText(body?.realName);
     const verificationToken = normalizeText(body?.verificationToken);
 
@@ -103,6 +122,30 @@ Deno.serve(async (req) => {
         autoRefreshToken: false
       }
     });
+
+    const { data: existingNames, error: existingNamesError } = await supabase
+      .from("user_profiles")
+      .select("id, display_name")
+      .ilike("display_name", `%${displayName}%`)
+      .limit(50);
+
+    if (existingNamesError) {
+      return jsonResponse(500, {
+        success: false,
+        error: existingNamesError.message
+      });
+    }
+
+    const hasDisplayNameConflict = ((existingNames ?? []) as ExistingProfileNameRow[]).some(
+      (row) => normalizeText(row.display_name).toLowerCase() === normalizedDisplayName
+    );
+
+    if (hasDisplayNameConflict) {
+      return jsonResponse(409, {
+        success: false,
+        error: DUPLICATE_DISPLAY_NAME_MESSAGE
+      });
+    }
 
     const { data: verificationRow, error: verificationError } = await supabase
       .from("email_verification_requests")
@@ -157,6 +200,13 @@ Deno.serve(async (req) => {
         return jsonResponse(409, {
           success: false,
           error: "이미 가입된 이메일입니다."
+        });
+      }
+
+      if (isDuplicateDisplayNameError(message)) {
+        return jsonResponse(409, {
+          success: false,
+          error: DUPLICATE_DISPLAY_NAME_MESSAGE
         });
       }
 

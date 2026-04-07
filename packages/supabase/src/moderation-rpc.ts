@@ -198,11 +198,16 @@ export async function reviewModerationFlag(
 export async function publishAnnouncement(
   client: AppSupabaseClient,
   announcementId: number,
-  actorUserId: string
+  actorUserId: string,
+  options?: {
+    isPinned?: boolean;
+  }
 ): Promise<PublishAnnouncementResult> {
+  const isPinned = options?.isPinned === true;
   const { data, error } = await client.rpc("publish_announcement", {
     p_announcement_id: announcementId,
-    p_actor_user_id: actorUserId
+    p_actor_user_id: actorUserId,
+    p_is_pinned: isPinned
   });
 
   if (error) {

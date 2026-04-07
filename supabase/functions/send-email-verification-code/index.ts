@@ -100,27 +100,6 @@ Deno.serve(async (req) => {
       }
     });
 
-    const { data: existingUsers, error: existingUsersError } = await supabase
-      .schema("auth")
-      .from("users")
-      .select("id")
-      .ilike("email", email)
-      .limit(1);
-
-    if (existingUsersError) {
-      return jsonResponse(500, {
-        success: false,
-        error: existingUsersError.message
-      });
-    }
-
-    if ((existingUsers ?? []).length > 0) {
-      return jsonResponse(409, {
-        success: false,
-        error: "이미 가입된 이메일입니다."
-      });
-    }
-
     const { data: existingRequest, error: existingRequestError } = await supabase
       .from("email_verification_requests")
       .select("id, email, resend_count, max_resends, last_sent_at, expires_at, verified_at, consumed_at")
@@ -137,15 +116,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (existingRequest?.verified_at && !existingRequest.consumed_at) {
-      return jsonResponse(200, {
-        success: true,
-        alreadyVerified: true,
-        message: "이미 인증 완료된 이메일입니다."
-      });
-    }
-
     const nowMs = Date.now();
+    const hasVerifiedButUnfinishedRequest = Boolean(
+      existingRequest && existingRequest.verified_at && !existingRequest.consumed_at
+    );
 
     if (existingRequest && !existingRequest.verified_at) {
       const secondsSinceLastSend = Math.floor(
@@ -183,6 +157,33 @@ Deno.serve(async (req) => {
           status: "code_sent",
           attempt_count: 0,
           resend_count: existingRequest.resend_count + 1,
+          last_sent_at: new Date(nowMs).toISOString(),
+          expires_at: expiresAt,
+          verification_token: null,
+          verified_at: null
+        })
+        .eq("id", existingRequest.id)
+        .select("id")
+        .single<{ id: string }>();
+
+      if (updateError || !updatedRow) {
+        return jsonResponse(500, {
+          success: false,
+          error: updateError?.message ?? "인증 요청 갱신에 실패했습니다."
+        });
+      }
+
+      requestId = updatedRow.id;
+    } else if (existingRequest && hasVerifiedButUnfinishedRequest) {
+      // A previously verified-but-unfinished signup should be resumable.
+      // Re-issue a fresh code/token on the same request instead of blocking this email.
+      const { data: updatedRow, error: updateError } = await supabase
+        .from("email_verification_requests")
+        .update({
+          code_hash: codeHash,
+          status: "code_sent",
+          attempt_count: 0,
+          resend_count: 0,
           last_sent_at: new Date(nowMs).toISOString(),
           expires_at: expiresAt,
           verification_token: null,

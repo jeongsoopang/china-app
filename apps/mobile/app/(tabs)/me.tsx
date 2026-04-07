@@ -303,6 +303,22 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+const DUPLICATE_DISPLAY_NAME_MESSAGE = "이미 사용 중인 사용자명입니다.";
+
+function normalizeDisplayName(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function isDisplayNameDuplicateErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    (normalized.includes("duplicate key value violates unique constraint") &&
+      normalized.includes("display_name")) ||
+    normalized.includes("user_profiles_display_name_ci_unique_idx") ||
+    normalized.includes("lower(btrim(display_name))")
+  );
+}
+
 type BronzeQuota = {
   remainingQuestions: number;
   remainingComments: number;
@@ -1003,8 +1019,31 @@ export default function MeScreen() {
 
     try {
       const nextName = profileNameDraft.trim();
+      const normalizedNextName = nextName;
+      const normalizedNextNameKey = normalizeDisplayName(normalizedNextName);
       let nextAvatarUrl = profileAvatarUrl;
       let nextProfileBackgroundUrl = profileBackgroundUrl;
+
+      if (normalizedNextNameKey.length > 0) {
+        const { data: existingNames, error: existingNamesError } = await supabase
+          .from("user_profiles")
+          .select("id, display_name")
+          .neq("id", auth.user.authUser.id)
+          .ilike("display_name", `%${normalizedNextName}%`)
+          .limit(50);
+
+        if (existingNamesError) {
+          throw new Error(existingNamesError.message);
+        }
+
+        const hasDisplayNameConflict = (existingNames ?? []).some(
+          (row) => normalizeDisplayName(row.display_name) === normalizedNextNameKey
+        );
+
+        if (hasDisplayNameConflict) {
+          throw new Error(DUPLICATE_DISPLAY_NAME_MESSAGE);
+        }
+      }
 
       if (selectedProfileImage) {
         const profileImageData = await readSelectedProfileImage(selectedProfileImage);
@@ -1059,7 +1098,6 @@ export default function MeScreen() {
       }
 
       const normalizedCurrentName = sessionDisplayName === "-" ? "" : sessionDisplayName.trim();
-      const normalizedNextName = nextName;
       const normalizedCurrentAvatarUrl = metadataAvatarUrl ?? auth.user?.profile?.avatar_url ?? null;
       const normalizedCurrentBackgroundUrl = metadataProfileBackgroundUrl ?? null;
       const shouldUpdateAuthMetadata =
@@ -1122,6 +1160,9 @@ export default function MeScreen() {
             .eq("id", auth.user.authUser.id);
 
           if (profileUpdateError) {
+            if (isDisplayNameDuplicateErrorMessage(profileUpdateError.message)) {
+              throw new Error(DUPLICATE_DISPLAY_NAME_MESSAGE);
+            }
             throw new Error(profileUpdateError.message);
           }
         }

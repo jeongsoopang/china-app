@@ -187,6 +187,14 @@ export default async function AnnouncementsPage() {
                         <dt>Home Popup</dt>
                         <dd>{announcement.is_home_popup ? "yes" : "no"}</dd>
                       </div>
+                      <div>
+                        <dt>Pinned</dt>
+                        <dd>{announcement.is_pinned ? "yes" : "no"}</dd>
+                      </div>
+                      <div>
+                        <dt>Pinned At</dt>
+                        <dd>{formatTime(announcement.pinned_at)}</dd>
+                      </div>
                     </dl>
 
                     <form action={publishAnnouncementAction} className="action-form">
@@ -195,7 +203,14 @@ export default async function AnnouncementsPage() {
                         type="hidden"
                         value={String(announcement.id)}
                       />
-                      <button type="submit">Publish Announcement</button>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button type="submit" name="publishMode" value="normal">
+                          일반 발행
+                        </button>
+                        <button type="submit" name="publishMode" value="pinned">
+                          상단 고정 발행
+                        </button>
+                      </div>
                     </form>
 
                     <details style={{ marginTop: 16 }}>
@@ -344,6 +359,14 @@ export default async function AnnouncementsPage() {
                       <div>
                         <dt>Home Popup</dt>
                         <dd>{announcement.is_home_popup ? "yes" : "no"}</dd>
+                      </div>
+                      <div>
+                        <dt>Pinned</dt>
+                        <dd>{announcement.is_pinned ? "yes" : "no"}</dd>
+                      </div>
+                      <div>
+                        <dt>Pinned At</dt>
+                        <dd>{formatTime(announcement.pinned_at)}</dd>
                       </div>
                     </dl>
 

@@ -35,6 +35,7 @@ const CATEGORY_LABELS: Record<string, ComposeLanguageValue> = {
   "life-notice": { ko: "공지", en: "Notices" },
   "life-opportunity": { ko: "기회의 장", en: "Opportunities" },
   "life-info-sharing": { ko: "정보 공유", en: "Info Sharing" },
+  "life-other": { ko: "기타", en: "Others" },
   "study-major": { ko: "전공정보", en: "Major Info" },
   "study-class-review": { ko: "수업후기", en: "Class Review" },
   "study-professor-review": { ko: "교수후기", en: "Professor Review" },
@@ -78,13 +79,13 @@ const RUNTIME_MESSAGE_MAP: Record<string, ComposeLanguageValue> = {
     ko: "Campus-Master는 학교 공지만 작성할 수 있습니다.",
     en: "Campus-Master can only compose School notice."
   },
-  "Campus-Master can only compose campus notice.": {
-    ko: "Campus-Master는 캠퍼스 공지 카테고리만 작성할 수 있습니다.",
-    en: "Campus-Master can only compose campus notice."
+  "Campus-Master can only compose School notice category.": {
+    ko: "Campus-Master는 학교 공지 카테고리만 작성할 수 있습니다.",
+    en: "Campus-Master can only compose School notice category."
   },
-  "Only Campus-Master can compose campus notice.": {
-    ko: "캠퍼스 공지는 Campus-Master만 작성할 수 있습니다.",
-    en: "Only Campus-Master can compose campus notice."
+  "Only Campus-Master can compose School notice.": {
+    ko: "학교 공지는 Campus-Master만 작성할 수 있습니다.",
+    en: "Only Campus-Master can compose School notice."
   },
   "Title is required.": { ko: "제목을 입력해주세요.", en: "Title is required." },
   "Abstract is required.": { ko: "요약을 입력해주세요.", en: "Abstract is required." },
@@ -181,6 +182,7 @@ export default function ComposeScreen() {
     state,
     isLoading,
     canSubmit,
+    canPinPost,
     universityRequired,
     universitySelectorDisabled,
     universitySelectionLocked,
@@ -190,6 +192,7 @@ export default function ComposeScreen() {
     setAbstract,
     setLocationText,
     setTagsInput,
+    setPinned,
     selectSection,
     selectCategory,
     selectDegree,
@@ -588,7 +591,7 @@ export default function ComposeScreen() {
         ) : null}
       </View>
 
-      {state.selectedSectionCode === "life" && state.campusOptions.length > 0 ? (
+      {state.selectedSectionCode === "life" && state.campusOptions.length > 0 && !canPinPost ? (
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>{isKo ? "캠퍼스" : "Campus"}</Text>
           <View style={styles.optionWrap}>
@@ -609,6 +612,35 @@ export default function ComposeScreen() {
               );
             })}
           </View>
+        </View>
+      ) : null}
+
+      {canPinPost ? (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>{isKo ? "상단 고정" : "Pin to Top"}</Text>
+          <View style={styles.optionWrap}>
+            <Pressable
+              disabled={isLoading}
+              onPress={() => setPinned(false)}
+              style={[styles.optionChip, !state.isPinned && styles.optionChipSelected]}
+            >
+              <Text style={[styles.optionChipLabel, !state.isPinned && styles.optionChipLabelSelected]}>
+                {isKo ? "고정 안 함" : "Not Pinned"}
+              </Text>
+            </Pressable>
+            <Pressable
+              disabled={isLoading}
+              onPress={() => setPinned(true)}
+              style={[styles.optionChip, state.isPinned && styles.optionChipSelected]}
+            >
+              <Text style={[styles.optionChipLabel, state.isPinned && styles.optionChipLabelSelected]}>
+                {isKo ? "상단 고정" : "Pin to Top"}
+              </Text>
+            </Pressable>
+          </View>
+          <Text style={styles.helperText}>
+            {isKo ? "학교 공지에만 적용됩니다." : "Applied only to school notice posts."}
+          </Text>
         </View>
       ) : null}
 

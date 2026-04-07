@@ -56,7 +56,9 @@ export type AdminAnnouncementRow = {
   body: string;
   image_urls: string[];
   is_home_popup: boolean;
+  is_pinned: boolean;
   is_published: boolean;
+  pinned_at: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
@@ -71,9 +73,9 @@ const ANNOUNCEMENT_IMAGE_MAX_COUNT = 8;
 const ANNOUNCEMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const ANNOUNCEMENT_IMAGE_CACHE_CONTROL = "31536000";
 const ANNOUNCEMENT_SELECT_WITH_IMAGES =
-  "id, author_user_id, title, outline, body, image_urls, is_home_popup, is_published, published_at, created_at, updated_at";
+  "id, author_user_id, title, outline, body, image_urls, is_home_popup, is_pinned, is_published, pinned_at, published_at, created_at, updated_at";
 const ANNOUNCEMENT_SELECT_NO_IMAGES =
-  "id, author_user_id, title, outline, body, is_home_popup, is_published, published_at, created_at, updated_at";
+  "id, author_user_id, title, outline, body, is_home_popup, is_pinned, is_published, pinned_at, published_at, created_at, updated_at";
 
 function sanitizeStorageSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -682,7 +684,12 @@ export async function deleteAnnouncementById(announcementId: number) {
   }
 }
 
-export async function publishAnnouncementById(announcementId: number) {
+export async function publishAnnouncementById(
+  announcementId: number,
+  options?: {
+    isPinned?: boolean;
+  }
+) {
   await requireGrandMasterAccess();
 
   const authClient = await createAdminServerSupabaseClient();
@@ -698,7 +705,9 @@ export async function publishAnnouncementById(announcementId: number) {
   }
 
   const rpcClient = (await createAdminServerSupabaseClient()) as unknown as AppSupabaseClient;
-  const result = await publishAnnouncement(rpcClient, announcementId, currentUserId);
+  const result = await publishAnnouncement(rpcClient, announcementId, currentUserId, {
+    isPinned: options?.isPinned === true
+  });
 
   if (!result.published) {
     throw new Error(result.message ?? "Failed to publish announcement.");

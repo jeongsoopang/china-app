@@ -21,7 +21,8 @@ import {
   getCategoryOptionsForSection,
   getComposeSectionOptions,
   getDefaultSection,
-  updatePostMetadata
+  updatePostMetadata,
+  updatePostPinning
 } from "../../src/features/compose/compose.service";
 import type {
   CategoryOption,
@@ -37,6 +38,8 @@ type MyPost = {
   title: string;
   body: string;
   abstract: string | null;
+  isPinned: boolean;
+  pinnedAt: string | null;
   thumbnailImageUrl: string | null;
   thumbnailStoragePath: string | null;
   sectionCode: ComposeSectionCode | null;
@@ -47,6 +50,7 @@ type MyPost = {
 type EditDraft = {
   id: number;
   title: string;
+  isPinned: boolean;
   blocks: EditBlock[];
   thumbnailBlockId: string | null;
   selectedSectionCode: ComposeSectionCode | null;
@@ -54,6 +58,13 @@ type EditDraft = {
   sectionOptions: ComposeSectionOption[];
   categoryOptions: CategoryOption[];
 };
+
+const SCHOOL_NOTICE_CATEGORY_SLUGS = new Set([
+  "life-notice",
+  "life-opportunity",
+  "life-info-sharing",
+  "life-other"
+]);
 
 type EditParagraphBlock = {
   id: string;
@@ -387,6 +398,20 @@ function getSectionLabel(code: ComposeSectionCode): string {
   return "Shanghai";
 }
 
+function canUseSchoolNoticePin(params: {
+  accessTier: string | null;
+  sectionCode: ComposeSectionCode | null;
+  categorySlug: string | null;
+}): boolean {
+  const { accessTier, sectionCode, categorySlug } = params;
+  return (
+    accessTier === "campus_master" &&
+    sectionCode === "life" &&
+    typeof categorySlug === "string" &&
+    SCHOOL_NOTICE_CATEGORY_SLUGS.has(categorySlug)
+  );
+}
+
 export default function MyPostsScreen() {
   const auth = useAuthSession();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string | string[] }>();
@@ -435,7 +460,7 @@ export default function MyPostsScreen() {
       return supabase
         .from("posts")
         .select(
-          "id, title, body, abstract, thumbnail_image_url, thumbnail_storage_path, created_at, sections ( code ), categories ( slug )"
+          "id, title, body, abstract, is_pinned, pinned_at, thumbnail_image_url, thumbnail_storage_path, created_at, sections ( code ), categories ( slug )"
         )
         .eq("author_id", authUserId)
         .order("created_at", { ascending: false });
@@ -459,7 +484,7 @@ export default function MyPostsScreen() {
     if (
       error &&
       /column/i.test(error.message) &&
-      /abstract|thumbnail_image_url|thumbnail_storage_path/i.test(error.message)
+      /abstract|thumbnail_image_url|thumbnail_storage_path|is_pinned|pinned_at/i.test(error.message)
     ) {
       const withoutMetadata = await attemptWithoutMetadata();
       data = withoutMetadata.data;
@@ -477,6 +502,8 @@ export default function MyPostsScreen() {
       title: string;
       body: string;
       abstract?: string | null;
+      is_pinned?: boolean | null;
+      pinned_at?: string | null;
       thumbnail_image_url?: string | null;
       thumbnail_storage_path?: string | null;
       sections?: { code: string | null } | null;
@@ -490,6 +517,8 @@ export default function MyPostsScreen() {
         title: row.title,
         body: row.body,
         abstract: typeof row.abstract === "string" ? row.abstract : null,
+        isPinned: row.is_pinned === true,
+        pinnedAt: typeof row.pinned_at === "string" ? row.pinned_at : null,
         thumbnailImageUrl:
           typeof row.thumbnail_image_url === "string" ? row.thumbnail_image_url : null,
         thumbnailStoragePath:
@@ -555,6 +584,16 @@ export default function MyPostsScreen() {
   }, [editDraft, isPickingImages, isSavingEdit]);
 
   const isEditingBusy = isSavingEdit || isPickingImages;
+  const canEditPin = useMemo(() => {
+    if (!editDraft) {
+      return false;
+    }
+    return canUseSchoolNoticePin({
+      accessTier,
+      sectionCode: editDraft.selectedSectionCode,
+      categorySlug: editDraft.selectedCategorySlug
+    });
+  }, [accessTier, editDraft]);
 
   function openEditDraft(post: MyPost) {
     if (!authProfile || !accessTier) {
@@ -603,6 +642,7 @@ export default function MyPostsScreen() {
     setEditDraft({
       id: post.id,
       title: post.title,
+      isPinned: post.isPinned,
       blocks,
       thumbnailBlockId: firstImage?.id ?? null,
       selectedSectionCode,
@@ -623,11 +663,19 @@ export default function MyPostsScreen() {
       }
 
       const categoryOptions = getCategoryOptionsForSection(code, accessTier, authProfile);
+      const nextCategorySlug = categoryOptions[0]?.slug ?? null;
       return {
         ...current,
         selectedSectionCode: code,
         categoryOptions,
-        selectedCategorySlug: categoryOptions[0]?.slug ?? null
+        selectedCategorySlug: nextCategorySlug,
+        isPinned: canUseSchoolNoticePin({
+          accessTier,
+          sectionCode: code,
+          categorySlug: nextCategorySlug
+        })
+          ? current.isPinned
+          : false
       };
     });
   }
@@ -640,7 +688,14 @@ export default function MyPostsScreen() {
 
       return {
         ...current,
-        selectedCategorySlug: slug
+        selectedCategorySlug: slug,
+        isPinned: canUseSchoolNoticePin({
+          accessTier,
+          sectionCode: current.selectedSectionCode,
+          categorySlug: slug
+        })
+          ? current.isPinned
+          : false
       };
     });
   }
@@ -937,6 +992,21 @@ export default function MyPostsScreen() {
       setErrorMessage("글은 저장되었지만 썸네일 동기화에 실패했습니다.");
     }
 
+    try {
+      await updatePostPinning(
+        editDraft.id,
+        canUseSchoolNoticePin({
+          accessTier,
+          sectionCode: editDraft.selectedSectionCode,
+          categorySlug: editDraft.selectedCategorySlug
+        })
+          ? editDraft.isPinned
+          : false
+      );
+    } catch {
+      setErrorMessage("글은 저장되었지만 상단 고정 설정 동기화에 실패했습니다.");
+    }
+
     setEditDraft(null);
     setIsSavingEdit(false);
     await loadPosts();
@@ -1124,6 +1194,34 @@ export default function MyPostsScreen() {
                   })}
                 </View>
               </View>
+
+              {canEditPin ? (
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>상단 고정</Text>
+                  <View style={styles.selectorRow}>
+                    <Pressable
+                      style={[
+                        styles.selectorChip,
+                        editDraft?.isPinned ? styles.selectorChipSelected : null
+                      ]}
+                      onPress={() =>
+                        setEditDraft((current) =>
+                          current ? { ...current, isPinned: !current.isPinned } : current
+                        )
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.selectorChipLabel,
+                          editDraft?.isPinned ? styles.selectorChipLabelSelected : null
+                        ]}
+                      >
+                        {editDraft?.isPinned ? "고정됨" : "고정 안 함"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
 
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>내용 블록</Text>

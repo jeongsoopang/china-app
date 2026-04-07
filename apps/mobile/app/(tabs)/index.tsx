@@ -385,21 +385,12 @@ export default function HomeScreen() {
 
   async function handleQuickActionPress(actionKey: QuickActionKey) {
     if (actionKey === "campus-notice") {
-      try {
-        let targetAnnouncement = homeAnnouncement;
-        if (!targetAnnouncement) {
-          targetAnnouncement = await fetchLatestHomePopupAnnouncement();
-          if (targetAnnouncement) {
-            setHomeAnnouncement(targetAnnouncement);
-          }
+      router.push({
+        pathname: "/notifications",
+        params: {
+          tab: "announcement"
         }
-
-        if (targetAnnouncement) {
-          setIsAnnouncementModalVisible(true);
-        }
-      } catch {
-        setIsAnnouncementModalVisible(false);
-      }
+      });
       return;
     }
 

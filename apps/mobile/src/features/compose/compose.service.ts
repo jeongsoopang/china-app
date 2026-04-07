@@ -82,6 +82,12 @@ const CAMPUS_NOTICE_CATEGORY_OPTIONS: CategoryOption[] = [
   { slug: "life-info-sharing", label: "정보 공유", sectionCode: "life" }
 ];
 
+const SCHOOL_OTHER_CATEGORY_OPTION: CategoryOption = {
+  slug: "life-other",
+  label: "기타",
+  sectionCode: "life"
+};
+
 const CAMPUS_NOTICE_CATEGORY_SLUGS = new Set(
   CAMPUS_NOTICE_CATEGORY_OPTIONS.map((category) => category.slug)
 );
@@ -104,6 +110,10 @@ const CAMPUS_OPTIONS_BY_UNIVERSITY_SLUG: Record<string, CampusOption[]> = {
 
 function canUseNoticeCategory(tier: AccessTier | null | undefined): boolean {
   return tier === "campus_master";
+}
+
+function canUseSchoolOtherCategory(profile: UserProfileRow | null | undefined): boolean {
+  return Boolean(profile?.verified_university_id);
 }
 
 function parseRpcResponseValue(value: unknown): CreatePostResult {
@@ -334,6 +344,10 @@ export function getCategoryOptionsForSection(
       ...base,
       ...CAMPUS_NOTICE_CATEGORY_OPTIONS
     ];
+  }
+
+  if (sectionCode === "life" && canUseSchoolOtherCategory(profile)) {
+    return [...base, SCHOOL_OTHER_CATEGORY_OPTION];
   }
 
   return base;
@@ -627,6 +641,23 @@ export async function updatePostCampus(
     .from("posts")
     .update({
       campus_slug: campusSlug ?? null
+    })
+    .eq("id", postId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function updatePostPinning(
+  postId: number,
+  isPinned: boolean
+): Promise<void> {
+  const { error } = await supabase
+    .from("posts")
+    .update({
+      is_pinned: isPinned,
+      pinned_at: isPinned ? new Date().toISOString() : null
     })
     .eq("id", postId);
 

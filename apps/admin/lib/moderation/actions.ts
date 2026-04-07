@@ -31,6 +31,7 @@ function parseRequiredText(value: FormDataEntryValue | null, fieldName: string):
 }
 
 const allowedReportActions = new Set(["none", "request_revision", "hide", "delete"]);
+const allowedAnnouncementPublishModes = new Set(["normal", "pinned"]);
 
 function parseCheckbox(value: FormDataEntryValue | null): boolean {
   return value === "on" || value === "true" || value === "1";
@@ -175,8 +176,15 @@ export async function publishAnnouncementAction(formData: FormData) {
     formData.get("announcementId"),
     "announcementId"
   );
+  const modeRaw = formData.get("publishMode");
+  const publishMode =
+    typeof modeRaw === "string" && allowedAnnouncementPublishModes.has(modeRaw)
+      ? modeRaw
+      : "normal";
 
-  await publishAnnouncementById(announcementId);
+  await publishAnnouncementById(announcementId, {
+    isPinned: publishMode === "pinned"
+  });
 
   revalidatePath("/announcements");
 }
