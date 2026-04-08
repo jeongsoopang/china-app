@@ -1220,7 +1220,9 @@ export default function UniversityDetailScreen() {
             <Ionicons name="search-outline" size={18} color={colors.textPrimary} />
           </Pressable>
         </View>
-        {campusLabel && !isCampusLanding ? <Text style={styles.metaText}>Campus · {campusLabel}</Text> : null}
+        {campusLabel && !isCampusLanding && filter !== "notice" ? (
+          <Text style={styles.metaText}>Campus · {campusLabel}</Text>
+        ) : null}
       </View>
 
       {!resolvedCampusSlug ? (
@@ -1228,23 +1230,6 @@ export default function UniversityDetailScreen() {
           <Pressable
             onPress={() => {
               if (isBronzeViewer) {
-                return;
-              }
-
-              if (hasCampusLanding) {
-                router.push({
-                  pathname: "/universities/[universityId]/campus/[campusSlug]",
-                  params: {
-                    universityId: resolvedUniversityId ?? "",
-                    campusSlug:
-                      isSjtuUniversity ? "minhang" :
-                      isEcnuUniversity ? "putuo" :
-                      isSisuUniversity ? "hongkou" :
-                      "minhang",
-                    section: "notice",
-                    returnTo: `/universities/${resolvedUniversityId ?? ""}`
-                  }
-                });
                 return;
               }
 

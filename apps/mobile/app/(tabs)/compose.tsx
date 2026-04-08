@@ -174,9 +174,7 @@ export default function ComposeScreen() {
   const auth = useAuthSession();
   const { resolvedLanguage } = useAppLanguage();
   const isKo = resolvedLanguage === "ko";
-  const verifiedEmail = auth.user?.profile?.verified_school_email ?? null;
   const verifiedUniversityId = auth.user?.profile?.verified_university_id ?? null;
-  const isVerified = Boolean(verifiedEmail && verifiedUniversityId);
 
   const {
     state,
@@ -381,34 +379,30 @@ export default function ComposeScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.heading}>{isKo ? "새 글 작성" : "New Post"}</Text>
-      <Text style={styles.metaText}>{isKo ? "학교 인증:" : "School verified:"} {isVerified ? (isKo ? "예" : "Yes") : (isKo ? "아니요" : "No")}</Text>
 
-      <View style={styles.fieldGroup}>
-        <Text style={styles.label}>{isKo ? "게시 유형" : "Post Type"}</Text>
-        {state.sectionOptions.length === 0 ? (
-          <Text style={styles.helperText}>
-            {isKo ? "이 계정에서 사용할 수 있는 게시 유형이 없습니다." : "No post types are available for this account."}
-          </Text>
-        ) : null}
-        <View style={styles.optionWrap}>
-          {state.sectionOptions.map((option) => {
-            const selected = state.selectedSectionCode === option.code;
+      {state.sectionOptions.length > 1 ? (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>{isKo ? "게시 유형" : "Post Type"}</Text>
+          <View style={styles.optionWrap}>
+            {state.sectionOptions.map((option) => {
+              const selected = state.selectedSectionCode === option.code;
 
-            return (
-              <Pressable
-                key={option.code}
-                disabled={isLoading}
-                onPress={() => selectSection(option.code)}
-                style={[styles.optionChip, selected && styles.optionChipSelected]}
-              >
-                <Text style={[styles.optionChipLabel, selected && styles.optionChipLabelSelected]}>
-                  {getSectionLabel(option.code, option.label)}
-                </Text>
-              </Pressable>
-            );
-          })}
+              return (
+                <Pressable
+                  key={option.code}
+                  disabled={isLoading}
+                  onPress={() => selectSection(option.code)}
+                  style={[styles.optionChip, selected && styles.optionChipSelected]}
+                >
+                  <Text style={[styles.optionChipLabel, selected && styles.optionChipLabelSelected]}>
+                    {getSectionLabel(option.code, option.label)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
-      </View>
+      ) : null}
 
       {state.selectedSectionCode === "study" ? (
         <View style={styles.fieldGroup}>
@@ -534,7 +528,7 @@ export default function ComposeScreen() {
 
         {state.selectedSectionCode !== "fun" && verifiedUniversityId ? (
           <Text style={styles.helperText}>
-            {isKo ? "인증된 학교:" : "Verified university:"}{" "}
+            {isKo ? "학교:" : "University:"}{" "}
             {verifiedUniversity?.shortName ?? verifiedUniversity?.name ?? verifiedUniversityId}
           </Text>
         ) : null}
@@ -576,12 +570,6 @@ export default function ComposeScreen() {
               );
             })}
           </View>
-        ) : null}
-
-        {universitySelectionLocked && state.selectedUniversitySlug ? (
-          <Text style={styles.helperText}>
-            {isKo ? "작성 가능한 학교는 인증된 학교로 제한됩니다." : "Posting is limited to your verified university."}
-          </Text>
         ) : null}
 
         {universityRequired ? (
@@ -757,7 +745,7 @@ export default function ComposeScreen() {
         <Text style={styles.label}>{isKo ? "위치 (선택)" : "Location (optional)"}</Text>
         <TextInput
           editable={!isLoading}
-          placeholder={isKo ? "캠퍼스 위치" : "Campus location"}
+          placeholder={isKo ? "학교 위치" : "School location"}
           placeholderTextColor="#94a3b8"
           style={styles.input}
           value={state.locationText}
